@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import './FilaPedidos.css';
 import pedidoService from '../services/pedidoService';
 
@@ -12,6 +12,8 @@ const FilaPedidos = ({ modo, onTrocarModo }) => {
   const [intervaloAnimacao, setIntervaloAnimacao] = useState(30); // segundos
   const [duracaoAnimacao, setDuracaoAnimacao] = useState(6); // segundos
   const isModoGestor = modo === 'gestor';
+  const hamburguerRef = useRef(null);
+  const hamburguerContainerRef = useRef(null);
 
   useEffect(() => {
     carregarPedidos();
@@ -91,6 +93,59 @@ const FilaPedidos = ({ modo, onTrocarModo }) => {
     }
   };
 
+  // FLIP animation para o hambúrguer
+  useLayoutEffect(() => {
+    if (!hamburguerContainerRef.current) return;
+
+    if (isAnimating) {
+      const container = hamburguerContainerRef.current;
+      
+      // First: capturar posição inicial
+      const rect = container.getBoundingClientRect();
+      const startX = rect.left + rect.width / 2;
+      const startY = rect.top + rect.height / 2;
+      
+      // Last: aplicar mudança de posição (position: fixed)
+      container.style.position = 'fixed';
+      container.style.bottom = '30px';
+      container.style.left = '30px';
+      container.style.width = 'auto';
+      container.style.padding = '0';
+      container.style.margin = '0';
+      container.style.zIndex = '10001';
+      
+      // Invert: calcular diferença e aplicar transform inverso
+      requestAnimationFrame(() => {
+        const endRect = container.getBoundingClientRect();
+        const endX = endRect.left + endRect.width / 2;
+        const endY = endRect.top + endRect.height / 2;
+        
+        const deltaX = startX - endX;
+        const deltaY = startY - endY;
+        
+        container.style.transform = `translate(${deltaX}px, ${deltaY}px)`;
+        
+        // Play: animar para posição final
+        requestAnimationFrame(() => {
+          container.style.transition = 'transform 1.4s cubic-bezier(0.34, 1.56, 0.64, 1)';
+          container.style.transform = 'translate(0, 0)';
+        });
+      });
+    } else {
+      // Reset quando animação terminar
+      const container = hamburguerContainerRef.current;
+      container.style.position = '';
+      container.style.bottom = '';
+      container.style.left = '';
+      container.style.width = '';
+      container.style.padding = '';
+      container.style.margin = '';
+      container.style.zIndex = '';
+      container.style.transform = '';
+      container.style.transition = '';
+    }
+  }, [isAnimating]);
+
   const handleAnimacaoManual = () => {
     if (isAnimating) return;
     setIsAnimating(true);
@@ -116,15 +171,6 @@ const FilaPedidos = ({ modo, onTrocarModo }) => {
               alt="Experimenta aí" 
               className={`logo-imagem ${isAnimating ? 'expandido' : ''}`}
             />
-            {!isModoGestor && isAnimating && (
-              <div className="hamburguer-container">
-                <img 
-                  src="/hamburguer_surfante.gif" 
-                  alt="Hambúrguer surfante" 
-                  className="hamburguer-imagem"
-                />
-              </div>
-            )}
             {isAnimating && (
               <div className="mensagem-animacao">
                 Fica a vontade, aqui é o <span className="soneca-fogo">
@@ -231,9 +277,13 @@ const FilaPedidos = ({ modo, onTrocarModo }) => {
           </div>
         )}
 
-        {!isModoGestor && !isAnimating && (
-          <div className="hamburguer-container">
+        {!isModoGestor && (
+          <div 
+            ref={hamburguerContainerRef}
+            className="hamburguer-container"
+          >
             <img 
+              ref={hamburguerRef}
               src="/hamburguer_surfante.gif" 
               alt="Hambúrguer surfante" 
               className="hamburguer-imagem"
