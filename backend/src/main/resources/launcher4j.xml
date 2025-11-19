@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<launch4jConfig>
+    <dontWrapJar>false</dontWrapJar>
+    <headerType>gui</headerType>
+    <jar>target/lobby-pedidos-1.0.0.jar</jar>
+    <outfile>../lobby-pedidos.exe</outfile>
+    <errTitle>Erro - Lobby Pedidos</errTitle>
+    <cmdLine></cmdLine>
+    <chdir>.</chdir>
+    <priority>normal</priority>
+    <downloadUrl>https://java.com/download</downloadUrl>
+    <supportUrl></supportUrl>
+    <stayAlive>false</stayAlive>
+    <restartOnCrash>false</restartOnCrash>
+    <manifest></manifest>
+    <icon></icon>
+    <jre>
+        <path></path>
+        <bundledJre64Bit>false</bundledJre64Bit>
+        <bundledJreAsFallback>false</bundledJreAsFallback>
+        <minVersion>17</minVersion>
+        <maxVersion></maxVersion>
+        <jdkPreference>preferJre</jdkPreference>
+        <runtimeBits>64/32</runtimeBits>
+        <initialHeapSize>256</initialHeapSize>
+        <maxHeapSize>1024</maxHeapSize>
+    </jre>
+    <versionInfo>
+        <fileVersion>1.0.0.0</fileVersion>
+        <txtFileVersion>1.0.0</txtFileVersion>
+        <fileDescription>Lobby Pedidos - Sistema de fila de pedidos</fileDescription>
+        <copyright>Copyright 2024 Experimenta aí</copyright>
+        <productVersion>1.0.0.0</productVersion>
+        <txtProductVersion>1.0.0</txtProductVersion>
+        <productName>Lobby Pedidos</productName>
+        <companyName>Experimenta aí</companyName>
+        <internalName>lobby-pedidos</internalName>
+        <originalFilename>lobby-pedidos.exe</originalFilename>
+    </versionInfo>
+</launch4jConfig>

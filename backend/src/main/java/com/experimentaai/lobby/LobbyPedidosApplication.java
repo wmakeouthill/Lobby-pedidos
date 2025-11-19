@@ -7,7 +7,10 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 public class LobbyPedidosApplication {
 
     public static void main(String[] args) {
+        // Garantir que a aplicação não execute em modo headless
+        // Isso deve ser feito ANTES de iniciar o Spring Boot
+        System.setProperty("java.awt.headless", "false");
+
         SpringApplication.run(LobbyPedidosApplication.class, args);
     }
 }
-

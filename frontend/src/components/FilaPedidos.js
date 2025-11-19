@@ -3,7 +3,11 @@ import './FilaPedidos.css';
 import pedidoService from '../services/pedidoService';
 
 const FilaPedidos = ({ modo, onTrocarModo }) => {
-  const [pedidos, setPedidos] = useState([]);
+  const [pedidos, setPedidos] = useState(() => {
+    // Carregar do cache na inicialização
+    const cached = pedidoService.carregarCache();
+    return cached || [];
+  });
   const [nomeCliente, setNomeCliente] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -11,12 +15,24 @@ const FilaPedidos = ({ modo, onTrocarModo }) => {
   const [showConfig, setShowConfig] = useState(false);
   const [intervaloAnimacao, setIntervaloAnimacao] = useState(30); // segundos
   const [duracaoAnimacao, setDuracaoAnimacao] = useState(6); // segundos
+  const [pedidoAnimando, setPedidoAnimando] = useState(null); // ID do pedido em animação
+  const [pedidoAnimandoStatus, setPedidoAnimandoStatus] = useState(null); // Status do pedido em animação
+  const [pedidoAnimandoDados, setPedidoAnimandoDados] = useState(null); // Dados do pedido em animação (com status antigo)
   const isModoGestor = modo === 'gestor';
   const hamburguerRef = useRef(null);
   const hamburguerContainerRef = useRef(null);
+  const pedidosAnterioresRef = useRef([]);
+  const animacaoTimeoutRef = useRef(null);
+  const animacaoIntervalRef = useRef(null);
+  const listaPreparandoRef = useRef(null);
+  const listaProntoRef = useRef(null);
+  const scrollIntervalRef = useRef(null);
 
   useEffect(() => {
+    // Carregar pedidos na inicialização
     carregarPedidos();
+    
+    // Atualizar a cada 2 segundos
     const interval = setInterval(carregarPedidos, 2000);
     return () => clearInterval(interval);
   }, []);
@@ -27,7 +43,7 @@ const FilaPedidos = ({ modo, onTrocarModo }) => {
 
     const animarAutomaticamente = () => {
       setIsAnimating(true);
-      setTimeout(() => {
+      animacaoTimeoutRef.current = setTimeout(() => {
         setIsAnimating(false);
       }, duracaoAnimacao * 1000);
     };
@@ -36,21 +52,112 @@ const FilaPedidos = ({ modo, onTrocarModo }) => {
     const timeoutInicial = setTimeout(animarAutomaticamente, intervaloAnimacao * 1000);
 
     // Intervalo para repetir a animação
-    const intervalAnimacao = setInterval(animarAutomaticamente, intervaloAnimacao * 1000);
+    animacaoIntervalRef.current = setInterval(animarAutomaticamente, intervaloAnimacao * 1000);
 
     return () => {
       clearTimeout(timeoutInicial);
-      clearInterval(intervalAnimacao);
+      if (animacaoIntervalRef.current) {
+        clearInterval(animacaoIntervalRef.current);
+      }
+      if (animacaoTimeoutRef.current) {
+        clearTimeout(animacaoTimeoutRef.current);
+      }
     };
   }, [isModoGestor, intervaloAnimacao, duracaoAnimacao]);
 
   const carregarPedidos = async () => {
     try {
       const dados = await pedidoService.listarTodosPedidos();
+      
+      // Verificar se houve mudanças na fila
+      const houveMudancas = JSON.stringify(pedidosAnterioresRef.current) !== JSON.stringify(dados);
+      
+      // Detectar mudanças de status para animação (funciona em ambos os modos)
+      let pedidoMudouStatus = null;
+      let pedidoAnterior = null;
+      if (pedidosAnterioresRef.current.length > 0 && houveMudancas) {
+        pedidoMudouStatus = detectarMudancaStatus(pedidosAnterioresRef.current, dados);
+        if (pedidoMudouStatus) {
+          pedidoAnterior = pedidosAnterioresRef.current.find(p => p.id === pedidoMudouStatus.id);
+        }
+      }
+      
+      // Se houver mudanças e estiver em animação periódica (modo visualizador), interromper
+      if (houveMudancas && isAnimating && !isModoGestor) {
+        if (animacaoTimeoutRef.current) {
+          clearTimeout(animacaoTimeoutRef.current);
+          animacaoTimeoutRef.current = null;
+        }
+        setIsAnimating(false);
+        
+        // Reiniciar o intervalo de animação após um pequeno delay
+        setTimeout(() => {
+          const animarAutomaticamente = () => {
+            setIsAnimating(true);
+            animacaoTimeoutRef.current = setTimeout(() => {
+              setIsAnimating(false);
+            }, duracaoAnimacao * 1000);
+          };
+          
+          // Limpar intervalo anterior se existir
+          if (animacaoIntervalRef.current) {
+            clearInterval(animacaoIntervalRef.current);
+          }
+          
+          animacaoIntervalRef.current = setInterval(animarAutomaticamente, intervaloAnimacao * 1000);
+        }, 500);
+      }
+      
+      // Se detectou mudança de status, animar transição (funciona em ambos os modos)
+      if (pedidoMudouStatus && pedidoAnterior) {
+        // Iniciar animação antes de atualizar o estado
+        animarTransicaoStatus(pedidoMudouStatus, pedidoAnterior);
+      }
+      
+      pedidosAnterioresRef.current = dados;
       setPedidos(dados);
     } catch (err) {
       console.error('Erro ao carregar pedidos:', err);
+      // Se falhar, tentar usar cache
+      const cached = pedidoService.carregarCache();
+      if (cached) {
+        setPedidos(cached);
+      }
     }
+  };
+
+  // Detectar se algum pedido mudou de PREPARANDO para PRONTO
+  const detectarMudancaStatus = (pedidosAnteriores, pedidosAtuais) => {
+    for (const pedidoAtual of pedidosAtuais) {
+      const pedidoAnterior = pedidosAnteriores.find(p => p.id === pedidoAtual.id);
+      if (pedidoAnterior && 
+          pedidoAnterior.status === 'PREPARANDO' && 
+          pedidoAtual.status === 'PRONTO') {
+        return pedidoAtual;
+      }
+    }
+    return null;
+  };
+
+  // Animar transição de status
+  const animarTransicaoStatus = (pedido, pedidoAnterior) => {
+    setPedidoAnimando(pedido.id);
+    setPedidoAnimandoStatus('PREPARANDO'); // Começar na lista de preparando
+    // Guardar uma cópia do pedido com status antigo para mostrar na lista de preparando
+    setPedidoAnimandoDados({ ...pedidoAnterior, status: 'PREPARANDO' });
+    
+    // Após metade da animação, mudar para a lista de pronto
+    setTimeout(() => {
+      setPedidoAnimandoStatus('PRONTO');
+      setPedidoAnimandoDados({ ...pedido, status: 'PRONTO' });
+    }, 500);
+    
+    // Remover animação após a animação completar (1 segundo)
+    setTimeout(() => {
+      setPedidoAnimando(null);
+      setPedidoAnimandoStatus(null);
+      setPedidoAnimandoDados(null);
+    }, 1000);
   };
 
   const handleAdicionarPedido = async (e) => {
@@ -77,7 +184,18 @@ const FilaPedidos = ({ modo, onTrocarModo }) => {
 
   const handleMarcarComoPronto = async (id) => {
     try {
+      // Encontrar o pedido antes de atualizar para animação
+      const pedidoAntes = pedidos.find(p => p.id === id);
+      
       await pedidoService.marcarComoPronto(id);
+      
+      // Animar transição se mudou de PREPARANDO para PRONTO
+      if (pedidoAntes && pedidoAntes.status === 'PREPARANDO') {
+        const pedidoAtualizado = { ...pedidoAntes, status: 'PRONTO' };
+        animarTransicaoStatus(pedidoAtualizado, pedidoAntes);
+      }
+      
+      // Recarregar para sincronizar (a animação será mantida pelo estado)
       await carregarPedidos();
     } catch (err) {
       setError('Erro ao marcar pedido como pronto');
@@ -158,8 +276,46 @@ const FilaPedidos = ({ modo, onTrocarModo }) => {
     setShowConfig(false);
   };
 
-  const pedidosPreparando = pedidos.filter(p => p.status === 'PREPARANDO');
-  const pedidosProntos = pedidos.filter(p => p.status === 'PRONTO');
+  // Filtrar pedidos, mas manter o pedido animando na lista original durante a animação
+  const pedidosPreparando = pedidos.filter(p => {
+    // Se o pedido está animando e ainda está na fase de saída, mostrar na lista de preparando
+    if (pedidoAnimando === p.id && pedidoAnimandoStatus === 'PREPARANDO') {
+      return true; // Manter na lista de preparando durante animação de saída
+    }
+    // Se o pedido está animando mas já mudou para a fase de entrada, não mostrar aqui
+    if (pedidoAnimando === p.id && pedidoAnimandoStatus === 'PRONTO') {
+      return false; // Não mostrar na lista de preparando durante animação de entrada
+    }
+    return p.status === 'PREPARANDO';
+  });
+  
+  // Adicionar pedido animando na lista de preparando se estiver na fase de saída
+  if (pedidoAnimandoDados && pedidoAnimandoStatus === 'PREPARANDO') {
+    const jaExiste = pedidosPreparando.some(p => p.id === pedidoAnimandoDados.id);
+    if (!jaExiste) {
+      pedidosPreparando.push(pedidoAnimandoDados);
+    }
+  }
+  
+  const pedidosProntos = pedidos.filter(p => {
+    // Se o pedido está animando e está na fase de entrada, mostrar na lista de pronto
+    if (pedidoAnimando === p.id && pedidoAnimandoStatus === 'PRONTO') {
+      return true; // Mostrar na lista de pronto durante animação de entrada
+    }
+    // Se o pedido está animando mas ainda está na fase de saída, não mostrar aqui ainda
+    if (pedidoAnimando === p.id && pedidoAnimandoStatus === 'PREPARANDO') {
+      return false; // Não mostrar na lista de pronto durante animação de saída
+    }
+    return p.status === 'PRONTO';
+  });
+  
+  // Adicionar pedido animando na lista de pronto se estiver na fase de entrada
+  if (pedidoAnimandoDados && pedidoAnimandoStatus === 'PRONTO') {
+    const jaExiste = pedidosProntos.some(p => p.id === pedidoAnimandoDados.id);
+    if (!jaExiste) {
+      pedidosProntos.push(pedidoAnimandoDados);
+    }
+  }
 
   return (
     <div className={`fila-pedidos-container ${isAnimating ? 'animando' : ''}`}>
@@ -302,7 +458,11 @@ const FilaPedidos = ({ modo, onTrocarModo }) => {
             <div className="pedido-vazio">Nenhum pedido em preparação</div>
           ) : (
             pedidosPreparando.map((pedido) => (
-              <div key={pedido.id} className="card-pedido preparando">
+              <div 
+                key={pedido.id} 
+                className={`card-pedido preparando ${pedidoAnimando === pedido.id ? 'animando-saida' : ''}`}
+                data-pedido-id={pedido.id}
+              >
                 <div className="nome-cliente">{pedido.nomeCliente}</div>
                 {isModoGestor && (
                   <button
@@ -328,7 +488,11 @@ const FilaPedidos = ({ modo, onTrocarModo }) => {
             <div className="pedido-vazio">Nenhum pedido pronto</div>
           ) : (
             pedidosProntos.map((pedido) => (
-              <div key={pedido.id} className="card-pedido pronto">
+              <div 
+                key={pedido.id} 
+                className={`card-pedido pronto ${pedidoAnimando === pedido.id ? 'animando-entrada' : ''}`}
+                data-pedido-id={pedido.id}
+              >
                 <div className="nome-cliente">{pedido.nomeCliente}</div>
                 {isModoGestor && (
                   <button

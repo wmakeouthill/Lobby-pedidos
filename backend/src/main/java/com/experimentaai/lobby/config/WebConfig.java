@@ -23,8 +23,8 @@ public class WebConfig implements WebMvcConfigurer {
                 .addResolver(new PathResourceResolver() {
                     @Override
                     protected Resource getResource(String resourcePath, Resource location) throws IOException {
-                        // Ignorar rotas de API
-                        if (resourcePath.startsWith("api/")) {
+                        // Ignorar rotas de API e status
+                        if (resourcePath.startsWith("api/") || resourcePath.startsWith("status")) {
                             return null;
                         }
                         
@@ -39,7 +39,8 @@ public class WebConfig implements WebMvcConfigurer {
 
     @Override
     public void addViewControllers(ViewControllerRegistry registry) {
-        // Redirecionar a rota raiz para o index.html
+        // A rota raiz aponta para o frontend React
+        // A interface gráfica Java (StatusWindow) mostra o status quando o servidor inicia
         registry.addViewController("/").setViewName("forward:/index.html");
     }
 }

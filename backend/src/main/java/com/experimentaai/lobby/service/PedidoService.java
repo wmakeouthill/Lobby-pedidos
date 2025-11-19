@@ -11,7 +11,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
-import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -32,7 +31,7 @@ public class PedidoService {
         return pedidoRepository.findAllByOrderByDataCriacaoAsc()
                 .stream()
                 .map(pedidoMapper::toResponseDTO)
-                .collect(Collectors.toList());
+                .toList();
     }
 
     @Transactional(readOnly = true)
@@ -40,7 +39,7 @@ public class PedidoService {
         return pedidoRepository.findByStatusOrderByDataCriacaoAsc(status)
                 .stream()
                 .map(pedidoMapper::toResponseDTO)
-                .collect(Collectors.toList());
+                .toList();
     }
 
     @Transactional

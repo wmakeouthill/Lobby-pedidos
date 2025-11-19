@@ -1,0 +1,57 @@
+# IDEs e Editores
+.idea/
+.vscode/
+*.iml
+*.iws
+*.ipr
+
+# Build e Distribuição
+dist/
+jre/
+*.exe
+*.jar
+*.war
+
+# Diretórios de build do frontend
+frontend/build/
+frontend/node_modules/
+frontend/node/
+
+# Diretórios de build do backend
+backend/target/
+backend/${project.parent.basedir}/
+
+# Arquivos de sistema
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Variáveis de ambiente
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Arquivos temporários
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# Arquivos do Maven
+**/target/
+!.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+# Arquivos do Spring Boot
+*.original
+
