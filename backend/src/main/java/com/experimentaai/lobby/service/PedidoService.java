@@ -103,10 +103,15 @@ public class PedidoService {
      */
     private void atualizarCachePedidos(List<PedidoResponseDTO> pedidos) {
         try {
+            if (pedidos == null) {
+                log.warn("⚠️ Tentando salvar cache com lista null, ignorando...");
+                return;
+            }
+            log.debug("Atualizando cache com {} pedidos", pedidos.size());
             cacheService.salvarCachePedidos(pedidos);
         } catch (Exception e) {
             // Log do erro mas não interrompe a operação principal
-            log.warn("Erro ao salvar cache de pedidos: {}", e.getMessage());
+            log.warn("Erro ao salvar cache de pedidos: {}", e.getMessage(), e);
         }
     }
 }

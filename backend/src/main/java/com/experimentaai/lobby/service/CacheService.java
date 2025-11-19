@@ -9,8 +9,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
+/**
+ * Serviço para gerenciar cache persistente em arquivos JSON.
+ * Usa ObjectMapper singleton injetado pelo Spring para evitar memory leaks.
+ */
 @Slf4j
 @Service
 public class CacheService {
@@ -20,11 +25,13 @@ public class CacheService {
     private static final String PEDIDOS_CACHE_FILE = "pedidos.json";
     private static final String ANIMACAO_CONFIG_FILE = "animacao_config.json";
     
+    // ObjectMapper injetado como singleton do Spring (configurado em JacksonConfig)
     private final ObjectMapper objectMapper;
     private final Path cacheDirectory;
 
-    public CacheService() {
-        this.objectMapper = new ObjectMapper();
+    // Construtor com inicialização do diretório de cache
+    public CacheService(ObjectMapper objectMapper) {
+        this.objectMapper = objectMapper;
         this.cacheDirectory = getCacheDirectory();
         createCacheDirectoryIfNotExists();
     }
@@ -69,10 +76,22 @@ public class CacheService {
     public void salvarCachePedidos(Object pedidos) {
         try {
             Path filePath = cacheDirectory.resolve(PEDIDOS_CACHE_FILE);
+            
+            // Log para debug - verificar o que está sendo salvo
+            if (pedidos instanceof List) {
+                List<?> lista = (List<?>) pedidos;
+                log.info("Salvando cache de pedidos: {} pedidos encontrados", lista.size());
+                if (lista.isEmpty()) {
+                    log.warn("⚠️ Tentando salvar cache vazio! Verifique se há pedidos no banco de dados.");
+                }
+            } else {
+                log.info("Salvando cache de pedidos: tipo {}", pedidos != null ? pedidos.getClass().getSimpleName() : "null");
+            }
+            
             objectMapper.writerWithDefaultPrettyPrinter().writeValue(filePath.toFile(), pedidos);
-            log.info("Cache de pedidos salvo em: {}", filePath.toAbsolutePath());
+            log.info("✅ Cache de pedidos salvo com sucesso em: {}", filePath.toAbsolutePath());
         } catch (IOException e) {
-            log.error("Erro ao salvar cache de pedidos: {}", e.getMessage());
+            log.error("❌ Erro ao salvar cache de pedidos: {}", e.getMessage(), e);
             throw new RuntimeException("Erro ao salvar cache de pedidos", e);
         }
     }

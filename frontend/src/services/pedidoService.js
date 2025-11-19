@@ -7,13 +7,25 @@ const pedidoService = {
   // Salvar no cache (no sistema de arquivos via backend)
   salvarCache: async (pedidos) => {
     try {
+      // Validar se há pedidos antes de salvar
+      if (!pedidos || !Array.isArray(pedidos)) {
+        console.warn('⚠️ Tentando salvar cache com dados inválidos:', pedidos);
+        return;
+      }
+      
+      // Não salvar se o array estiver vazio (o backend já gerencia isso)
+      if (pedidos.length === 0) {
+        console.log('ℹ️ Array vazio, não salvando cache (backend já gerencia)');
+        return;
+      }
+      
       await axios.post(`${CACHE_API_URL}/pedidos`, pedidos);
       console.log(`✅ Cache salvo no sistema de arquivos: ${pedidos.length} pedidos`);
     } catch (error) {
       console.error('❌ Erro ao salvar cache:', error);
       // Fallback para localStorage se o backend falhar
       try {
-        if (typeof Storage !== 'undefined') {
+        if (typeof Storage !== 'undefined' && pedidos && Array.isArray(pedidos) && pedidos.length > 0) {
           localStorage.setItem('lobby_pedidos_cache', JSON.stringify(pedidos));
           console.log('✅ Cache salvo no localStorage como fallback');
         }
@@ -122,10 +134,9 @@ const pedidoService = {
     const response = await axios.post(API_BASE_URL, { nomeCliente });
     const novoPedido = response.data;
     
-    // Atualizar cache
-    const pedidos = await pedidoService.carregarCache() || [];
-    pedidos.push(novoPedido);
-    await pedidoService.salvarCache(pedidos);
+    // O backend já atualiza o cache automaticamente ao criar pedido
+    // Não precisamos atualizar manualmente aqui
+    console.log('✅ Pedido criado (backend já atualiza o cache automaticamente)');
     
     return novoPedido;
   },
@@ -135,9 +146,11 @@ const pedidoService = {
       const response = await axios.get(API_BASE_URL);
       const pedidos = response.data;
       
-      // Atualizar cache com dados do servidor (sempre que buscar do servidor)
+      // O backend já atualiza o cache automaticamente ao listar pedidos
+      // Não precisamos salvar novamente aqui para evitar condições de corrida
+      // Apenas log para debug
       if (pedidos && Array.isArray(pedidos)) {
-        await pedidoService.salvarCache(pedidos);
+        console.log(`📋 Pedidos listados: ${pedidos.length} pedidos (backend já atualiza o cache)`);
       }
       
       return pedidos;
@@ -175,13 +188,9 @@ const pedidoService = {
     const response = await axios.put(`${API_BASE_URL}/${id}/pronto`);
     const pedidoAtualizado = response.data;
     
-    // Atualizar cache
-    const pedidos = await pedidoService.carregarCache() || [];
-    const index = pedidos.findIndex(p => p.id === id);
-    if (index !== -1) {
-      pedidos[index] = pedidoAtualizado;
-      await pedidoService.salvarCache(pedidos);
-    }
+    // O backend já atualiza o cache automaticamente ao marcar como pronto
+    // Não precisamos atualizar manualmente aqui
+    console.log('✅ Pedido marcado como pronto (backend já atualiza o cache automaticamente)');
     
     return pedidoAtualizado;
   },
@@ -189,13 +198,9 @@ const pedidoService = {
   removerPedido: async (id) => {
     await axios.delete(`${API_BASE_URL}/${id}`);
     
-    // Atualizar cache - remover o pedido
-    const pedidos = await pedidoService.carregarCache() || [];
-    const pedidosFiltrados = pedidos.filter(p => p.id !== id);
-    await pedidoService.salvarCache(pedidosFiltrados);
-    
-    // Se não houver mais pedidos, o cache será atualizado na próxima operação
-    // Não precisamos limpar explicitamente
+    // O backend já atualiza o cache automaticamente ao remover pedido
+    // Não precisamos atualizar manualmente aqui
+    console.log('✅ Pedido removido (backend já atualiza o cache automaticamente)');
   }
 };
 
