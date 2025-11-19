@@ -3,21 +3,23 @@ import './FilaPedidos.css';
 import pedidoService from '../services/pedidoService';
 
 const FilaPedidos = ({ modo, onTrocarModo }) => {
-  const [pedidos, setPedidos] = useState(() => {
-    // Carregar do cache na inicialização
-    const cached = pedidoService.carregarCache();
-    return cached || [];
-  });
+  // Valores padrão para configurações de animação (serão carregados assincronamente)
+  const [pedidos, setPedidos] = useState([]);
   const [nomeCliente, setNomeCliente] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [isAnimating, setIsAnimating] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
-  const [intervaloAnimacao, setIntervaloAnimacao] = useState(30); // segundos
-  const [duracaoAnimacao, setDuracaoAnimacao] = useState(6); // segundos
+  const [animacaoAtivada, setAnimacaoAtivada] = useState(true);
+  const [intervaloAnimacao, setIntervaloAnimacao] = useState(30);
+  const [duracaoAnimacao, setDuracaoAnimacao] = useState(6);
   const [pedidoAnimando, setPedidoAnimando] = useState(null); // ID do pedido em animação
   const [pedidoAnimandoStatus, setPedidoAnimandoStatus] = useState(null); // Status do pedido em animação
   const [pedidoAnimandoDados, setPedidoAnimandoDados] = useState(null); // Dados do pedido em animação (com status antigo)
+  const [paginaPreparando, setPaginaPreparando] = useState(0); // Página atual da lista de preparando
+  const [paginaPronto, setPaginaPronto] = useState(0); // Página atual da lista de pronto
+  const [itensPorPaginaPreparando, setItensPorPaginaPreparando] = useState(null);
+  const [itensPorPaginaPronto, setItensPorPaginaPronto] = useState(null);
   const isModoGestor = modo === 'gestor';
   const hamburguerRef = useRef(null);
   const hamburguerContainerRef = useRef(null);
@@ -26,7 +28,34 @@ const FilaPedidos = ({ modo, onTrocarModo }) => {
   const animacaoIntervalRef = useRef(null);
   const listaPreparandoRef = useRef(null);
   const listaProntoRef = useRef(null);
-  const scrollIntervalRef = useRef(null);
+  const paginacaoIntervalRef = useRef(null);
+
+  // Carregar configurações de animação e cache na inicialização
+  useEffect(() => {
+    const carregarConfiguracoes = async () => {
+      try {
+        // Carregar configurações de animação
+        const configAnimacao = await pedidoService.carregarConfigAnimacao();
+        if (configAnimacao) {
+          setAnimacaoAtivada(configAnimacao.animacaoAtivada ?? true);
+          setIntervaloAnimacao(configAnimacao.intervaloAnimacao ?? 30);
+          setDuracaoAnimacao(configAnimacao.duracaoAnimacao ?? 6);
+          console.log('🔧 Configurações de animação carregadas:', configAnimacao);
+        }
+        
+        // Carregar cache de pedidos
+        const cached = await pedidoService.carregarCache();
+        if (cached && Array.isArray(cached)) {
+          setPedidos(cached);
+          console.log(`📦 Pedidos carregados do cache: ${cached.length} pedidos`);
+        }
+      } catch (error) {
+        console.warn('⚠️ Erro ao carregar configurações do cache:', error);
+      }
+    };
+    
+    carregarConfiguracoes();
+  }, []);
 
   useEffect(() => {
     // Carregar pedidos na inicialização
@@ -37,9 +66,20 @@ const FilaPedidos = ({ modo, onTrocarModo }) => {
     return () => clearInterval(interval);
   }, []);
 
-  // Animação automática apenas no modo visualizador
+  // Animação automática apenas no modo visualizador e se estiver ativada
   useEffect(() => {
-    if (isModoGestor) return;
+    if (isModoGestor || !animacaoAtivada) {
+      // Limpar intervalos se desativar animação ou mudar para modo gestor
+      if (animacaoIntervalRef.current) {
+        clearInterval(animacaoIntervalRef.current);
+        animacaoIntervalRef.current = null;
+      }
+      if (animacaoTimeoutRef.current) {
+        clearTimeout(animacaoTimeoutRef.current);
+        animacaoTimeoutRef.current = null;
+      }
+      return;
+    }
 
     const animarAutomaticamente = () => {
       setIsAnimating(true);
@@ -63,14 +103,191 @@ const FilaPedidos = ({ modo, onTrocarModo }) => {
         clearTimeout(animacaoTimeoutRef.current);
       }
     };
-  }, [isModoGestor, intervaloAnimacao, duracaoAnimacao]);
+  }, [isModoGestor, intervaloAnimacao, duracaoAnimacao, animacaoAtivada]);
+
+  // Filtrar pedidos, mas manter o pedido animando na lista original durante a animação
+  const pedidosPreparando = pedidos.filter(p => {
+    // Se o pedido está animando e ainda está na fase de saída, mostrar na lista de preparando
+    if (pedidoAnimando === p.id && pedidoAnimandoStatus === 'PREPARANDO') {
+      return true; // Manter na lista de preparando durante animação de saída
+    }
+    // Se o pedido está animando mas já mudou para a fase de entrada, não mostrar aqui
+    if (pedidoAnimando === p.id && pedidoAnimandoStatus === 'PRONTO') {
+      return false; // Não mostrar na lista de preparando durante animação de entrada
+    }
+    return p.status === 'PREPARANDO';
+  });
+  
+  // Adicionar pedido animando na lista de preparando se estiver na fase de saída
+  if (pedidoAnimandoDados && pedidoAnimandoStatus === 'PREPARANDO') {
+    const jaExiste = pedidosPreparando.some(p => p.id === pedidoAnimandoDados.id);
+    if (!jaExiste) {
+      pedidosPreparando.push(pedidoAnimandoDados);
+    }
+  }
+  
+  const pedidosProntos = pedidos.filter(p => {
+    // Se o pedido está animando e está na fase de entrada, mostrar na lista de pronto
+    if (pedidoAnimando === p.id && pedidoAnimandoStatus === 'PRONTO') {
+      return true; // Mostrar na lista de pronto durante animação de entrada
+    }
+    // Se o pedido está animando mas ainda está na fase de saída, não mostrar aqui ainda
+    if (pedidoAnimando === p.id && pedidoAnimandoStatus === 'PREPARANDO') {
+      return false; // Não mostrar na lista de pronto durante animação de saída
+    }
+    return p.status === 'PRONTO';
+  });
+  
+  // Adicionar pedido animando na lista de pronto se estiver na fase de entrada
+  if (pedidoAnimandoDados && pedidoAnimandoStatus === 'PRONTO') {
+    const jaExiste = pedidosProntos.some(p => p.id === pedidoAnimandoDados.id);
+    if (!jaExiste) {
+      pedidosProntos.push(pedidoAnimandoDados);
+    }
+  }
+
+  // Calcular quantos itens cabem na tela após renderização
+  useEffect(() => {
+    if (isModoGestor) {
+      setItensPorPaginaPreparando(null);
+      setItensPorPaginaPronto(null);
+      return;
+    }
+
+    const calcularItensPorPagina = (listaRef) => {
+      if (!listaRef.current) return null;
+      
+      const container = listaRef.current;
+      const alturaContainer = container.clientHeight;
+      const primeiroItem = container.querySelector('.card-pedido');
+      
+      if (!primeiroItem || alturaContainer === 0) return null;
+      
+      const alturaItem = primeiroItem.offsetHeight;
+      const gap = 15; // gap entre itens (definido no CSS)
+      const itensPorPagina = Math.floor((alturaContainer + gap) / (alturaItem + gap));
+      
+      return Math.max(1, itensPorPagina); // Pelo menos 1 item por página
+    };
+
+    // Aguardar um pouco para garantir que o DOM está renderizado
+    const timeoutId = setTimeout(() => {
+      if (listaPreparandoRef.current) {
+        const itens = calcularItensPorPagina(listaPreparandoRef);
+        setItensPorPaginaPreparando(itens);
+      }
+      if (listaProntoRef.current) {
+        const itens = calcularItensPorPagina(listaProntoRef);
+        setItensPorPaginaPronto(itens);
+      }
+    }, 100);
+
+    return () => clearTimeout(timeoutId);
+  }, [isModoGestor, pedidosPreparando.length, pedidosProntos.length]);
+
+  // Aplicar paginação (apenas no modo visualizador)
+  const obterPedidosPagina = (listaCompleta, pagina, itensPorPagina) => {
+    if (isModoGestor || !itensPorPagina || listaCompleta.length <= itensPorPagina) {
+      return listaCompleta; // Modo gestor ou se todos cabem na tela, mostrar todos
+    }
+
+    const inicio = pagina * itensPorPagina;
+    const fim = inicio + itensPorPagina;
+    return listaCompleta.slice(inicio, fim);
+  };
+
+  const pedidosPreparandoPaginados = obterPedidosPagina(pedidosPreparando, paginaPreparando, itensPorPaginaPreparando);
+  const pedidosProntosPaginados = obterPedidosPagina(pedidosProntos, paginaPronto, itensPorPaginaPronto);
+
+  // Calcular informações de paginação para exibir indicadores
+  const getInfoPagina = (listaCompleta, pagina, itensPorPagina) => {
+    // No modo gestor, nunca paginar
+    if (isModoGestor) {
+      return { totalPaginas: 1, paginaAtual: 0, temPagina: false };
+    }
+
+    // Se ainda não calculou, não paginar ainda
+    if (!itensPorPagina) {
+      return { totalPaginas: 1, paginaAtual: 0, temPagina: false };
+    }
+
+    // Se todos cabem na tela, não precisa paginar
+    if (listaCompleta.length <= itensPorPagina) {
+      return { totalPaginas: 1, paginaAtual: 0, temPagina: false };
+    }
+
+    const totalPaginas = Math.ceil(listaCompleta.length / itensPorPagina);
+    // Sempre mostrar quando há mais de 1 página (mesmo que seja só temporariamente durante cálculo)
+    return { 
+      totalPaginas, 
+      paginaAtual: pagina, 
+      temPagina: totalPaginas > 1 
+    };
+  };
+
+  const infoPaginaPreparando = getInfoPagina(pedidosPreparando, paginaPreparando, itensPorPaginaPreparando);
+  const infoPaginaPronto = getInfoPagina(pedidosProntos, paginaPronto, itensPorPaginaPronto);
+
+  // Paginação automática apenas no modo visualizador
+  useEffect(() => {
+    if (isModoGestor) {
+      // Limpar intervalo de paginação se mudar para modo gestor
+      if (paginacaoIntervalRef.current) {
+        clearInterval(paginacaoIntervalRef.current);
+        paginacaoIntervalRef.current = null;
+      }
+      // Resetar páginas
+      setPaginaPreparando(0);
+      setPaginaPronto(0);
+      return;
+    }
+
+    // Trocar de página
+    const trocarPagina = () => {
+      // Trocar página para preparando
+      if (itensPorPaginaPreparando && pedidosPreparando.length > itensPorPaginaPreparando) {
+        const totalPaginasPreparando = Math.ceil(pedidosPreparando.length / itensPorPaginaPreparando);
+        if (totalPaginasPreparando > 1) {
+          setPaginaPreparando(prev => (prev + 1) % totalPaginasPreparando);
+        }
+      }
+
+      // Trocar página para pronto
+      if (itensPorPaginaPronto && pedidosProntos.length > itensPorPaginaPronto) {
+        const totalPaginasPronto = Math.ceil(pedidosProntos.length / itensPorPaginaPronto);
+        if (totalPaginasPronto > 1) {
+          setPaginaPronto(prev => (prev + 1) % totalPaginasPronto);
+        }
+      }
+    };
+
+    // Aguardar renderização antes de iniciar paginação
+    const timeoutId = setTimeout(() => {
+      // Resetar páginas quando os pedidos mudarem
+      setPaginaPreparando(0);
+      setPaginaPronto(0);
+
+      // Iniciar paginação automática a cada 5 segundos
+      paginacaoIntervalRef.current = setInterval(trocarPagina, 5000);
+    }, 500);
+
+    return () => {
+      if (paginacaoIntervalRef.current) {
+        clearInterval(paginacaoIntervalRef.current);
+        paginacaoIntervalRef.current = null;
+      }
+      clearTimeout(timeoutId);
+    };
+  }, [isModoGestor, pedidosPreparando.length, pedidosProntos.length, itensPorPaginaPreparando, itensPorPaginaPronto]);
 
   const carregarPedidos = async () => {
     try {
       const dados = await pedidoService.listarTodosPedidos();
       
-      // Verificar se houve mudanças na fila
-      const houveMudancas = JSON.stringify(pedidosAnterioresRef.current) !== JSON.stringify(dados);
+      // Verificar se houve mudanças na fila (comparação mais robusta)
+      const pedidosAnterioresStr = JSON.stringify([...pedidosAnterioresRef.current].sort((a, b) => a.id - b.id));
+      const dadosStr = JSON.stringify([...dados].sort((a, b) => a.id - b.id));
+      const houveMudancas = pedidosAnterioresStr !== dadosStr;
       
       // Detectar mudanças de status para animação (funciona em ambos os modos)
       let pedidoMudouStatus = null;
@@ -79,38 +296,63 @@ const FilaPedidos = ({ modo, onTrocarModo }) => {
         pedidoMudouStatus = detectarMudancaStatus(pedidosAnterioresRef.current, dados);
         if (pedidoMudouStatus) {
           pedidoAnterior = pedidosAnterioresRef.current.find(p => p.id === pedidoMudouStatus.id);
+          console.log('Mudança de status detectada:', pedidoAnterior?.nomeCliente, 'PREPARANDO -> PRONTO');
         }
       }
       
-      // Se houver mudanças e estiver em animação periódica (modo visualizador), interromper
-      if (houveMudancas && isAnimating && !isModoGestor) {
+      if (houveMudancas) {
+        console.log('Mudanças detectadas na fila. Estava em animação:', isAnimating && !isModoGestor);
+      }
+      
+      // Se houver mudanças e estiver em animação periódica (modo visualizador), interromper suavemente
+      const estavaEmAnimacao = isAnimating && !isModoGestor;
+      
+      if (houveMudancas && estavaEmAnimacao) {
+        // Parar a animação periódica imediatamente
         if (animacaoTimeoutRef.current) {
           clearTimeout(animacaoTimeoutRef.current);
           animacaoTimeoutRef.current = null;
         }
-        setIsAnimating(false);
+        if (animacaoIntervalRef.current) {
+          clearInterval(animacaoIntervalRef.current);
+          animacaoIntervalRef.current = null;
+        }
         
-        // Reiniciar o intervalo de animação após um pequeno delay
+        // Aguardar transição CSS completar antes de remover a classe de animação
         setTimeout(() => {
-          const animarAutomaticamente = () => {
-            setIsAnimating(true);
-            animacaoTimeoutRef.current = setTimeout(() => {
-              setIsAnimating(false);
-            }, duracaoAnimacao * 1000);
-          };
+          setIsAnimating(false);
           
-          // Limpar intervalo anterior se existir
-          if (animacaoIntervalRef.current) {
-            clearInterval(animacaoIntervalRef.current);
+          // Se houver mudança de status, animar transição após voltar para lista (apenas se animação estiver ativada)
+          if (pedidoMudouStatus && pedidoAnterior && animacaoAtivada) {
+            animarTransicaoStatus(pedidoMudouStatus, pedidoAnterior);
+            
+            // Reiniciar o intervalo de animação após a transição completar (apenas se animação estiver ativada)
+            setTimeout(() => {
+              if (animacaoAtivada && !isModoGestor) {
+                const animarAutomaticamente = () => {
+                  setIsAnimating(true);
+                  animacaoTimeoutRef.current = setTimeout(() => {
+                    setIsAnimating(false);
+                  }, duracaoAnimacao * 1000);
+                };
+                
+                animacaoIntervalRef.current = setInterval(animarAutomaticamente, intervaloAnimacao * 1000);
+              }
+            }, 2000); // Aguardar animação de transição completar (1s animação + 1s margem)
+          } else if (animacaoAtivada && !isModoGestor) {
+            // Se não houver mudança de status, apenas reiniciar o intervalo (apenas se animação estiver ativada)
+            const animarAutomaticamente = () => {
+              setIsAnimating(true);
+              animacaoTimeoutRef.current = setTimeout(() => {
+                setIsAnimating(false);
+              }, duracaoAnimacao * 1000);
+            };
+            
+            animacaoIntervalRef.current = setInterval(animarAutomaticamente, intervaloAnimacao * 1000);
           }
-          
-          animacaoIntervalRef.current = setInterval(animarAutomaticamente, intervaloAnimacao * 1000);
-        }, 500);
-      }
-      
-      // Se detectou mudança de status, animar transição (funciona em ambos os modos)
-      if (pedidoMudouStatus && pedidoAnterior) {
-        // Iniciar animação antes de atualizar o estado
+        }, 800); // Tempo da transição CSS
+      } else if (pedidoMudouStatus && pedidoAnterior && animacaoAtivada && !isModoGestor) {
+        // Se detectou mudança de status e NÃO estava em animação periódica, animar transição diretamente (apenas se animação estiver ativada)
         animarTransicaoStatus(pedidoMudouStatus, pedidoAnterior);
       }
       
@@ -128,6 +370,7 @@ const FilaPedidos = ({ modo, onTrocarModo }) => {
 
   // Detectar se algum pedido mudou de PREPARANDO para PRONTO
   const detectarMudancaStatus = (pedidosAnteriores, pedidosAtuais) => {
+    // Verificar mudanças de status em pedidos existentes
     for (const pedidoAtual of pedidosAtuais) {
       const pedidoAnterior = pedidosAnteriores.find(p => p.id === pedidoAtual.id);
       if (pedidoAnterior && 
@@ -136,6 +379,17 @@ const FilaPedidos = ({ modo, onTrocarModo }) => {
         return pedidoAtual;
       }
     }
+    
+    // Verificar se algum pedido novo foi adicionado diretamente como PRONTO
+    // (caso raro, mas pode acontecer)
+    for (const pedidoAtual of pedidosAtuais) {
+      const pedidoAnterior = pedidosAnteriores.find(p => p.id === pedidoAtual.id);
+      if (!pedidoAnterior && pedidoAtual.status === 'PRONTO') {
+        // Não animar pedidos novos, apenas mudanças de status
+        continue;
+      }
+    }
+    
     return null;
   };
 
@@ -189,8 +443,8 @@ const FilaPedidos = ({ modo, onTrocarModo }) => {
       
       await pedidoService.marcarComoPronto(id);
       
-      // Animar transição se mudou de PREPARANDO para PRONTO
-      if (pedidoAntes && pedidoAntes.status === 'PREPARANDO') {
+      // Animar transição se mudou de PREPARANDO para PRONTO (apenas se animação estiver ativada)
+      if (pedidoAntes && pedidoAntes.status === 'PREPARANDO' && animacaoAtivada) {
         const pedidoAtualizado = { ...pedidoAntes, status: 'PRONTO' };
         animarTransicaoStatus(pedidoAtualizado, pedidoAntes);
       }
@@ -273,49 +527,14 @@ const FilaPedidos = ({ modo, onTrocarModo }) => {
   };
 
   const handleSalvarConfig = () => {
+    // Salvar configurações de animação no cache persistente
+    pedidoService.salvarConfigAnimacao({
+      animacaoAtivada,
+      intervaloAnimacao,
+      duracaoAnimacao
+    });
     setShowConfig(false);
   };
-
-  // Filtrar pedidos, mas manter o pedido animando na lista original durante a animação
-  const pedidosPreparando = pedidos.filter(p => {
-    // Se o pedido está animando e ainda está na fase de saída, mostrar na lista de preparando
-    if (pedidoAnimando === p.id && pedidoAnimandoStatus === 'PREPARANDO') {
-      return true; // Manter na lista de preparando durante animação de saída
-    }
-    // Se o pedido está animando mas já mudou para a fase de entrada, não mostrar aqui
-    if (pedidoAnimando === p.id && pedidoAnimandoStatus === 'PRONTO') {
-      return false; // Não mostrar na lista de preparando durante animação de entrada
-    }
-    return p.status === 'PREPARANDO';
-  });
-  
-  // Adicionar pedido animando na lista de preparando se estiver na fase de saída
-  if (pedidoAnimandoDados && pedidoAnimandoStatus === 'PREPARANDO') {
-    const jaExiste = pedidosPreparando.some(p => p.id === pedidoAnimandoDados.id);
-    if (!jaExiste) {
-      pedidosPreparando.push(pedidoAnimandoDados);
-    }
-  }
-  
-  const pedidosProntos = pedidos.filter(p => {
-    // Se o pedido está animando e está na fase de entrada, mostrar na lista de pronto
-    if (pedidoAnimando === p.id && pedidoAnimandoStatus === 'PRONTO') {
-      return true; // Mostrar na lista de pronto durante animação de entrada
-    }
-    // Se o pedido está animando mas ainda está na fase de saída, não mostrar aqui ainda
-    if (pedidoAnimando === p.id && pedidoAnimandoStatus === 'PREPARANDO') {
-      return false; // Não mostrar na lista de pronto durante animação de saída
-    }
-    return p.status === 'PRONTO';
-  });
-  
-  // Adicionar pedido animando na lista de pronto se estiver na fase de entrada
-  if (pedidoAnimandoDados && pedidoAnimandoStatus === 'PRONTO') {
-    const jaExiste = pedidosProntos.some(p => p.id === pedidoAnimandoDados.id);
-    if (!jaExiste) {
-      pedidosProntos.push(pedidoAnimandoDados);
-    }
-  }
 
   return (
     <div className={`fila-pedidos-container ${isAnimating ? 'animando' : ''}`}>
@@ -375,6 +594,17 @@ const FilaPedidos = ({ modo, onTrocarModo }) => {
             <div className="modal-config" onClick={(e) => e.stopPropagation()}>
               <h3>Configurar Animação</h3>
               <div className="config-item">
+                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={animacaoAtivada}
+                    onChange={(e) => setAnimacaoAtivada(e.target.checked)}
+                    style={{ width: '20px', height: '20px', cursor: 'pointer' }}
+                  />
+                  <span>Ativar animação</span>
+                </label>
+              </div>
+              <div className="config-item">
                 <label>
                   Intervalo entre animações (segundos):
                   <input
@@ -383,6 +613,7 @@ const FilaPedidos = ({ modo, onTrocarModo }) => {
                     max="300"
                     value={intervaloAnimacao}
                     onChange={(e) => setIntervaloAnimacao(Number(e.target.value))}
+                    disabled={!animacaoAtivada}
                   />
                 </label>
               </div>
@@ -395,6 +626,7 @@ const FilaPedidos = ({ modo, onTrocarModo }) => {
                     max="30"
                     value={duracaoAnimacao}
                     onChange={(e) => setDuracaoAnimacao(Number(e.target.value))}
+                    disabled={!animacaoAtivada}
                   />
                 </label>
               </div>
@@ -451,19 +683,39 @@ const FilaPedidos = ({ modo, onTrocarModo }) => {
       <div className={`coluna-fila coluna-preparando ${isAnimating ? 'saindo' : ''}`}>
         <div className="cabecalho-coluna preparando">
           <h2>⏳ PREPARANDO</h2>
-          <span className="contador">{pedidosPreparando.length}</span>
+          <div className="cabecalho-direita">
+            {!isModoGestor && infoPaginaPreparando.temPagina && (
+              <div className="indicador-pagina-header">
+                <span className="pagina-info-header">
+                  Página {infoPaginaPreparando.paginaAtual + 1} de {infoPaginaPreparando.totalPaginas}
+                </span>
+                <div className="pontos-pagina-header">
+                  {Array.from({ length: infoPaginaPreparando.totalPaginas }, (_, i) => (
+                    <span 
+                      key={i} 
+                      className={`ponto-pagina-header ${i === infoPaginaPreparando.paginaAtual ? 'ativo' : ''}`}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+            <span className="contador">{pedidosPreparando.length}</span>
+          </div>
         </div>
-        <div className="lista-pedidos">
+        <div 
+          ref={listaPreparandoRef}
+          className={`lista-pedidos ${!isModoGestor && infoPaginaPreparando.temPagina ? 'lista-paginada' : ''}`}
+        >
           {pedidosPreparando.length === 0 ? (
             <div className="pedido-vazio">Nenhum pedido em preparação</div>
           ) : (
-            pedidosPreparando.map((pedido) => (
+            pedidosPreparandoPaginados.map((pedido) => (
               <div 
                 key={pedido.id} 
                 className={`card-pedido preparando ${pedidoAnimando === pedido.id ? 'animando-saida' : ''}`}
                 data-pedido-id={pedido.id}
               >
-                <div className="nome-cliente">{pedido.nomeCliente}</div>
+                <div className={`nome-cliente ${isModoGestor ? 'com-numero' : 'sem-numero'}`}>{pedido.nomeCliente}</div>
                 {isModoGestor && (
                   <button
                     onClick={() => handleMarcarComoPronto(pedido.id)}
@@ -481,19 +733,39 @@ const FilaPedidos = ({ modo, onTrocarModo }) => {
       <div className={`coluna-fila coluna-pronto ${isAnimating ? 'saindo' : ''}`}>
         <div className="cabecalho-coluna pronto">
           <h2>✅ PRONTO</h2>
-          <span className="contador">{pedidosProntos.length}</span>
+          <div className="cabecalho-direita">
+            {!isModoGestor && infoPaginaPronto.temPagina && (
+              <div className="indicador-pagina-header">
+                <span className="pagina-info-header">
+                  Página {infoPaginaPronto.paginaAtual + 1} de {infoPaginaPronto.totalPaginas}
+                </span>
+                <div className="pontos-pagina-header">
+                  {Array.from({ length: infoPaginaPronto.totalPaginas }, (_, i) => (
+                    <span 
+                      key={i} 
+                      className={`ponto-pagina-header ${i === infoPaginaPronto.paginaAtual ? 'ativo' : ''}`}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+            <span className="contador">{pedidosProntos.length}</span>
+          </div>
         </div>
-        <div className="lista-pedidos">
+        <div 
+          ref={listaProntoRef}
+          className={`lista-pedidos ${!isModoGestor && infoPaginaPronto.temPagina ? 'lista-paginada' : ''}`}
+        >
           {pedidosProntos.length === 0 ? (
             <div className="pedido-vazio">Nenhum pedido pronto</div>
           ) : (
-            pedidosProntos.map((pedido) => (
+            pedidosProntosPaginados.map((pedido) => (
               <div 
                 key={pedido.id} 
                 className={`card-pedido pronto ${pedidoAnimando === pedido.id ? 'animando-entrada' : ''}`}
                 data-pedido-id={pedido.id}
               >
-                <div className="nome-cliente">{pedido.nomeCliente}</div>
+                <div className={`nome-cliente ${isModoGestor ? 'com-numero' : 'sem-numero'}`}>{pedido.nomeCliente}</div>
                 {isModoGestor && (
                   <button
                     onClick={() => handleRemoverPedido(pedido.id)}

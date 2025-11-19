@@ -25,6 +25,7 @@ public class StatusWindow {
     private static final int WINDOW_HEIGHT = 600;
     private static final String ERROR_ABRIR_NAVEGADOR = "Erro ao abrir navegador: ";
     private static final String URL_LABEL = "\nURL: ";
+    private static final String WINDOW_TITLE = "Lobby Pedidos - Experimenta aí";
 
     private static final Color PRIMARY_ORANGE = new Color(255, 107, 53);
     private static final Color PRIMARY_YELLOW = new Color(255, 213, 79);
@@ -48,7 +49,21 @@ public class StatusWindow {
             return;
         }
 
-        // Garantir que apenas uma janela seja criada
+        // Verificar se já existe uma janela com o mesmo título aberta no sistema
+        Window existingWindow = findExistingWindow();
+        if (existingWindow != null) {
+            logger.info("Janela '{}' já está aberta. Trazendo para frente ao invés de criar nova.", WINDOW_TITLE);
+            SwingUtilities.invokeLater(() -> {
+                existingWindow.toFront();
+                existingWindow.requestFocus();
+                if (existingWindow instanceof JFrame jframe) {
+                    jframe.setState(Frame.NORMAL);
+                }
+            });
+            return;
+        }
+
+        // Garantir que apenas uma janela seja criada nesta instância
         synchronized (this) {
             if (windowShown) {
                 logger.warn("Janela já foi exibida. Ignorando chamada duplicada.");
@@ -93,8 +108,31 @@ public class StatusWindow {
         return !GraphicsEnvironment.isHeadless();
     }
 
+    /**
+     * Verifica se já existe uma janela com o mesmo título aberta no sistema.
+     * Isso previne a abertura de múltiplas janelas quando a aplicação é iniciada
+     * várias vezes.
+     *
+     * @return A janela existente se encontrada, null caso contrário
+     */
+    private Window findExistingWindow() {
+        try {
+            Window[] windows = Window.getWindows();
+            for (Window window : windows) {
+                if (window instanceof JFrame jframe
+                        && WINDOW_TITLE.equals(jframe.getTitle())
+                        && jframe.isVisible()) {
+                    return window;
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("Erro ao verificar janelas existentes", e);
+        }
+        return null;
+    }
+
     private void createWindow() {
-        frame = new JFrame("Lobby Pedidos - Experimenta aí");
+        frame = new JFrame(WINDOW_TITLE);
         frame.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
         frame.setResizable(true);
         frame.setSize(WINDOW_WIDTH, WINDOW_HEIGHT);
@@ -176,7 +214,7 @@ public class StatusWindow {
     }
 
     private JLabel createSubtitleLabel() {
-        JLabel label = new JLabel("Lobby Pedidos - Experimenta aí");
+        JLabel label = new JLabel(WINDOW_TITLE);
         label.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 16));
         label.setForeground(Color.WHITE);
         label.setHorizontalAlignment(SwingConstants.CENTER);
