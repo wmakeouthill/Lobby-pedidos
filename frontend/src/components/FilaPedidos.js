@@ -170,20 +170,33 @@ const FilaPedidos = ({ modo, onTrocarModo }) => {
       return Math.max(1, itensPorPagina); // Pelo menos 1 item por página
     };
 
-    // Aguardar um pouco para garantir que o DOM está renderizado
-    const timeoutId = setTimeout(() => {
+    // Função para recalcular após renderização
+    const recalcular = () => {
       if (listaPreparandoRef.current) {
         const itens = calcularItensPorPagina(listaPreparandoRef);
-        setItensPorPaginaPreparando(itens);
+        if (itens !== null) {
+          setItensPorPaginaPreparando(itens);
+        }
       }
       if (listaProntoRef.current) {
         const itens = calcularItensPorPagina(listaProntoRef);
-        setItensPorPaginaPronto(itens);
+        if (itens !== null) {
+          setItensPorPaginaPronto(itens);
+        }
       }
-    }, 100);
+    };
 
-    return () => clearTimeout(timeoutId);
-  }, [isModoGestor, pedidosPreparando.length, pedidosProntos.length]);
+    // Aguardar um pouco para garantir que o DOM está renderizado
+    const timeoutId1 = setTimeout(recalcular, 100);
+    
+    // Recalcular após mais tempo para garantir que animações e transições terminaram
+    const timeoutId2 = setTimeout(recalcular, 600);
+
+    return () => {
+      clearTimeout(timeoutId1);
+      clearTimeout(timeoutId2);
+    };
+  }, [isModoGestor, pedidosPreparando.length, pedidosProntos.length, isAnimating]);
 
   // Aplicar paginação (apenas no modo visualizador)
   const obterPedidosPagina = (listaCompleta, pagina, itensPorPagina) => {
@@ -248,7 +261,11 @@ const FilaPedidos = ({ modo, onTrocarModo }) => {
       if (itensPorPaginaPreparando && pedidosPreparando.length > itensPorPaginaPreparando) {
         const totalPaginasPreparando = Math.ceil(pedidosPreparando.length / itensPorPaginaPreparando);
         if (totalPaginasPreparando > 1) {
-          setPaginaPreparando(prev => (prev + 1) % totalPaginasPreparando);
+          setPaginaPreparando(prev => {
+            // Garantir que a página atual não ultrapasse o total de páginas
+            const paginaAjustada = prev >= totalPaginasPreparando ? 0 : prev;
+            return (paginaAjustada + 1) % totalPaginasPreparando;
+          });
         }
       }
 
@@ -256,27 +273,69 @@ const FilaPedidos = ({ modo, onTrocarModo }) => {
       if (itensPorPaginaPronto && pedidosProntos.length > itensPorPaginaPronto) {
         const totalPaginasPronto = Math.ceil(pedidosProntos.length / itensPorPaginaPronto);
         if (totalPaginasPronto > 1) {
-          setPaginaPronto(prev => (prev + 1) % totalPaginasPronto);
+          setPaginaPronto(prev => {
+            // Garantir que a página atual não ultrapasse o total de páginas
+            const paginaAjustada = prev >= totalPaginasPronto ? 0 : prev;
+            return (paginaAjustada + 1) % totalPaginasPronto;
+          });
         }
       }
     };
 
-    // Aguardar renderização antes de iniciar paginação
+    // Ajustar páginas quando o número de itens por página ou quantidade de pedidos mudar
+    const ajustarPaginas = () => {
+      // Ajustar página de preparando se necessário
+      if (itensPorPaginaPreparando && pedidosPreparando.length > itensPorPaginaPreparando) {
+        const totalPaginasPreparando = Math.ceil(pedidosPreparando.length / itensPorPaginaPreparando);
+        setPaginaPreparando(prev => {
+          // Se não há mais necessidade de paginação, voltar para 0
+          if (totalPaginasPreparando <= 1) return 0;
+          // Se a página atual é maior ou igual ao total, ajustar para última página válida
+          return prev >= totalPaginasPreparando ? totalPaginasPreparando - 1 : prev;
+        });
+      } else if (!itensPorPaginaPreparando || pedidosPreparando.length <= itensPorPaginaPreparando) {
+        // Se não precisa mais paginar (não há itensPorPagina ou todos cabem), apenas garantir que está em 0
+        setPaginaPreparando(0);
+      }
+
+      // Ajustar página de pronto se necessário
+      if (itensPorPaginaPronto && pedidosProntos.length > itensPorPaginaPronto) {
+        const totalPaginasPronto = Math.ceil(pedidosProntos.length / itensPorPaginaPronto);
+        setPaginaPronto(prev => {
+          // Se não há mais necessidade de paginação, voltar para 0
+          if (totalPaginasPronto <= 1) return 0;
+          // Se a página atual é maior ou igual ao total, ajustar para última página válida
+          return prev >= totalPaginasPronto ? totalPaginasPronto - 1 : prev;
+        });
+      } else if (!itensPorPaginaPronto || pedidosProntos.length <= itensPorPaginaPronto) {
+        // Se não precisa mais paginar (não há itensPorPagina ou todos cabem), apenas garantir que está em 0
+        setPaginaPronto(0);
+      }
+    };
+
+    // Aguardar renderização antes de ajustar e iniciar paginação
     const timeoutId = setTimeout(() => {
-      // Resetar páginas quando os pedidos mudarem
-      setPaginaPreparando(0);
-      setPaginaPronto(0);
+      // Ajustar páginas apenas se necessário (não resetar se ainda há paginação)
+      ajustarPaginas();
 
-      // Iniciar paginação automática a cada 5 segundos
-      paginacaoIntervalRef.current = setInterval(trocarPagina, 5000);
-    }, 500);
-
-    return () => {
+      // Iniciar/continuar paginação automática a cada 5 segundos se necessário
+      // Limpar intervalo anterior se existir
       if (paginacaoIntervalRef.current) {
         clearInterval(paginacaoIntervalRef.current);
-        paginacaoIntervalRef.current = null;
       }
+
+      // Verificar se ainda precisa de paginação antes de iniciar
+      const precisaPaginarPreparando = itensPorPaginaPreparando && pedidosPreparando.length > itensPorPaginaPreparando;
+      const precisaPaginarPronto = itensPorPaginaPronto && pedidosProntos.length > itensPorPaginaPronto;
+
+      if (precisaPaginarPreparando || precisaPaginarPronto) {
+        paginacaoIntervalRef.current = setInterval(trocarPagina, 5000);
+      }
+    }, 300);
+
+    return () => {
       clearTimeout(timeoutId);
+      // Não limpar o intervalo aqui, deixar que o próximo useEffect gerencie
     };
   }, [isModoGestor, pedidosPreparando.length, pedidosProntos.length, itensPorPaginaPreparando, itensPorPaginaPronto]);
 
