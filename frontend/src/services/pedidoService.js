@@ -146,11 +146,12 @@ const pedidoService = {
       const response = await axios.get(API_BASE_URL);
       const pedidos = response.data;
       
-      // O backend já atualiza o cache automaticamente ao listar pedidos
-      // Não precisamos salvar novamente aqui para evitar condições de corrida
-      // Apenas log para debug
+      // O backend NÃO atualiza mais o cache automaticamente ao listar (removido para evitar zerar cache)
+      // Este método só deve ser chamado quando NÃO há cache disponível
+      // Log apenas quando realmente necessário (quando não há cache)
       if (pedidos && Array.isArray(pedidos)) {
-        console.log(`📋 Pedidos listados: ${pedidos.length} pedidos (backend já atualiza o cache)`);
+        // Log apenas em modo debug ou quando realmente necessário
+        // console.log(`📋 Pedidos listados do banco: ${pedidos.length} pedidos (sem cache disponível)`);
       }
       
       return pedidos;

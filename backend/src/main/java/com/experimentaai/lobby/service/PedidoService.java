@@ -41,8 +41,9 @@ public class PedidoService {
                 .map(pedidoMapper::toResponseDTO)
                 .toList();
 
-        // Atualizar cache sempre que listar (para manter sincronizado)
-        atualizarCachePedidos(pedidos);
+        // NÃO atualizar cache automaticamente ao listar
+        // O cache só deve ser atualizado durante ações (criar, atualizar, remover)
+        // Isso evita zerar o arquivo quando não há pedidos no banco
 
         return pedidos;
     }

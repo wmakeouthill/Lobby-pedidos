@@ -77,12 +77,28 @@ public class CacheService {
         try {
             Path filePath = cacheDirectory.resolve(PEDIDOS_CACHE_FILE);
             
-            // Log para debug - verificar o que está sendo salvo
+            // Verificar se está tentando salvar uma lista vazia
             if (pedidos instanceof List) {
                 List<?> lista = (List<?>) pedidos;
-                log.info("Salvando cache de pedidos: {} pedidos encontrados", lista.size());
+                log.info("Tentando salvar cache de pedidos: {} pedidos encontrados", lista.size());
+                
+                // Se a lista estiver vazia, verificar se já existe cache com dados
                 if (lista.isEmpty()) {
-                    log.warn("⚠️ Tentando salvar cache vazio! Verifique se há pedidos no banco de dados.");
+                    // Verificar se já existe um cache com dados
+                    if (Files.exists(filePath)) {
+                        try {
+                            Object cacheExistente = objectMapper.readValue(filePath.toFile(), Object.class);
+                            if (cacheExistente instanceof List && !((List<?>) cacheExistente).isEmpty()) {
+                                log.warn("⚠️ Tentando salvar cache vazio, mas já existe cache com dados. Mantendo cache existente.");
+                                return; // Não sobrescrever o cache existente
+                            }
+                        } catch (IOException e) {
+                            log.warn("Erro ao verificar cache existente: {}", e.getMessage());
+                        }
+                    } else {
+                        log.warn("⚠️ Tentando salvar cache vazio e não existe cache anterior. Não salvando.");
+                        return; // Não criar arquivo vazio se não existir cache anterior
+                    }
                 }
             } else {
                 log.info("Salvando cache de pedidos: tipo {}", pedidos != null ? pedidos.getClass().getSimpleName() : "null");
