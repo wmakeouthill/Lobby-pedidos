@@ -82,33 +82,29 @@ public class CacheService {
                 List<?> lista = (List<?>) pedidos;
                 log.info("Tentando salvar cache de pedidos: {} pedidos encontrados", lista.size());
                 
-                // Se a lista estiver vazia, verificar se já existe cache com dados
+                // Se a lista estiver vazia, permitir salvar apenas se já existir cache
+                // Isso permite zerar o cache quando o último pedido é removido (ação de gestão)
                 if (lista.isEmpty()) {
-                    // Verificar se já existe um cache com dados
-                    if (Files.exists(filePath)) {
-                        try {
-                            Object cacheExistente = objectMapper.readValue(filePath.toFile(), Object.class);
-                            if (cacheExistente instanceof List && !((List<?>) cacheExistente).isEmpty()) {
-                                log.warn("⚠️ Tentando salvar cache vazio, mas já existe cache com dados. Mantendo cache existente.");
-                                return; // Não sobrescrever o cache existente
-                            }
-                        } catch (IOException e) {
-                            log.warn("Erro ao verificar cache existente: {}", e.getMessage());
-                        }
-                    } else {
-                        log.warn("⚠️ Tentando salvar cache vazio e não existe cache anterior. Não salvando.");
-                        return; // Não criar arquivo vazio se não existir cache anterior
+                    if (!Files.exists(filePath)) {
+                        // Se não existe cache anterior, não criar arquivo vazio
+                        // O cache será criado quando houver o primeiro pedido
+                        log.info("ℹ️ Cache vazio não será criado (não existe cache anterior). Cache será criado quando houver pedidos.");
+                        return;
                     }
+                    // Se já existe cache, permitir salvar array vazio (último pedido foi removido)
+                    log.info("✅ Atualizando cache para array vazio (último pedido removido)");
                 }
             } else {
                 log.info("Salvando cache de pedidos: tipo {}", pedidos != null ? pedidos.getClass().getSimpleName() : "null");
             }
             
+            // Salvar cache (pode ser array vazio se já existir cache anterior)
             objectMapper.writerWithDefaultPrettyPrinter().writeValue(filePath.toFile(), pedidos);
             log.info("✅ Cache de pedidos salvo com sucesso em: {}", filePath.toAbsolutePath());
         } catch (IOException e) {
             log.error("❌ Erro ao salvar cache de pedidos: {}", e.getMessage(), e);
-            throw new RuntimeException("Erro ao salvar cache de pedidos", e);
+            // Não lançar exceção para não interromper a operação principal
+            // O erro já foi logado, a operação de pedido deve continuar normalmente
         }
     }
 
@@ -116,9 +112,15 @@ public class CacheService {
         try {
             Path filePath = cacheDirectory.resolve(PEDIDOS_CACHE_FILE);
             if (Files.exists(filePath)) {
+                // Ler como Object.class retorna LinkedHashMap/ArrayList quando deserializa JSON
+                // Isso é esperado e será convertido no PedidoService
                 Object pedidos = objectMapper.readValue(filePath.toFile(), Object.class);
-                log.info("Cache de pedidos carregado de: {}", filePath.toAbsolutePath());
+                log.info("Cache de pedidos carregado de: {} (tipo: {})", 
+                    filePath.toAbsolutePath(), 
+                    pedidos != null ? pedidos.getClass().getSimpleName() : "null");
                 return pedidos;
+            } else {
+                log.info("Cache de pedidos não existe ainda em: {}", filePath.toAbsolutePath());
             }
         } catch (IOException e) {
             log.warn("Erro ao carregar cache de pedidos: {}", e.getMessage());
@@ -132,8 +134,9 @@ public class CacheService {
             objectMapper.writerWithDefaultPrettyPrinter().writeValue(filePath.toFile(), config);
             log.info("Configurações de animação salvas em: {}", filePath.toAbsolutePath());
         } catch (IOException e) {
-            log.error("Erro ao salvar configurações de animação: {}", e.getMessage());
-            throw new RuntimeException("Erro ao salvar configurações de animação", e);
+            log.error("Erro ao salvar configurações de animação: {}", e.getMessage(), e);
+            // Não lançar exceção para não interromper a operação principal
+            // O erro já foi logado
         }
     }
 

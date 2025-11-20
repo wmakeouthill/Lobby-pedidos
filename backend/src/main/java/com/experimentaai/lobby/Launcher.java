@@ -1,23 +1,39 @@
 package com.experimentaai.lobby;
 
+import com.experimentaai.lobby.util.WindowsIconUtil;
+
 import java.awt.GraphicsEnvironment;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 
 public class Launcher {
 
-    private static final String APP_NAME = "lobby";
+    private static final String APP_NAME = "Lobby Pedidos - Experimenta Aí";
 
     public static void main(String[] args) {
         // Garantir que não está em modo headless ANTES de qualquer operação GUI
         System.setProperty("java.awt.headless", "false");
         System.setProperty("java.awt.application.name", APP_NAME);
         
+        // Definir nome da aplicação para o Windows (usado no gerenciador de tarefas e barra de tarefas)
+        // No Windows, o nome do processo é definido pelo executável, mas podemos tentar definir via JNA se disponível
+        // Por enquanto, o nome será definido pelo executável quando compilado
+        
         // Verificar se GUI está disponível
         if (GraphicsEnvironment.isHeadless()) {
             System.err.println("ERRO: Ambiente headless detectado!");
             System.err.println("A aplicação requer interface gráfica.");
             System.exit(1);
+        }
+
+        // Carregar e aplicar ícone da aplicação antes de iniciar
+        // Isso garante que o ícone apareça corretamente na barra de tarefas do Windows
+        try {
+            WindowsIconUtil.loadApplicationIcon();
+            System.out.println("Ícone da aplicação carregado com sucesso");
+        } catch (Exception e) {
+            System.err.println("Aviso: Não foi possível carregar ícone da aplicação: " + e.getMessage());
+            // Continuar mesmo se o ícone não puder ser carregado
         }
 
         try {

@@ -39,14 +39,35 @@ public class PedidoController {
 
     @PutMapping("/{id}/pronto")
     public ResponseEntity<PedidoResponseDTO> marcarComoPronto(@PathVariable Long id) {
-        PedidoResponseDTO response = pedidoService.atualizarStatusParaPronto(id);
-        return ResponseEntity.ok(response);
+        System.out.println("🔵 [CONTROLLER] Recebida requisição PUT /api/pedidos/" + id + "/pronto");
+        try {
+            PedidoResponseDTO response = pedidoService.atualizarStatusParaPronto(id);
+            System.out.println("✅ [CONTROLLER] Pedido " + id + " marcado como pronto com sucesso");
+            return ResponseEntity.ok(response);
+        } catch (RuntimeException e) {
+            // Log do erro para debug
+            System.err.println("❌ [CONTROLLER] Erro ao marcar pedido " + id + " como pronto: " + e.getMessage());
+            e.printStackTrace();
+            
+            if (e.getMessage() != null && e.getMessage().contains("não encontrado")) {
+                System.err.println("❌ [CONTROLLER] Retornando 404 - Pedido não encontrado");
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+            }
+            throw e; // Re-lançar para que o Spring trate como erro 500
+        }
     }
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> removerPedido(@PathVariable Long id) {
-        pedidoService.removerPedido(id);
-        return ResponseEntity.noContent().build();
+        try {
+            pedidoService.removerPedido(id);
+            return ResponseEntity.noContent().build();
+        } catch (RuntimeException e) {
+            if (e.getMessage() != null && e.getMessage().contains("não encontrado")) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+            }
+            throw e; // Re-lançar para que o Spring trate como erro 500
+        }
     }
 }
 

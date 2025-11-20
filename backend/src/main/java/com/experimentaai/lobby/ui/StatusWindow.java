@@ -2,6 +2,7 @@ package com.experimentaai.lobby.ui;
 
 import com.experimentaai.lobby.exception.StatusWindowException;
 import com.experimentaai.lobby.service.NetworkAddressCollector;
+import com.experimentaai.lobby.util.WindowsIconUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationContext;
@@ -367,7 +368,7 @@ public class StatusWindow {
         // Painel de botões
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 5));
         buttonPanel.setOpaque(false);
-        
+
         JButton minimizeButton = createMinimizeButton();
         buttonPanel.add(minimizeButton);
 
@@ -482,91 +483,7 @@ public class StatusWindow {
     }
 
     private void setWindowIcon() {
-        try {
-            // Tentar carregar ícone dos resources (múltiplos formatos e localizações)
-            java.net.URL iconUrl = null;
-            Image iconImage = null;
-            
-            // Método 1: Tentar carregar icon.ico dos resources
-            iconUrl = getClass().getResource("/icon.ico");
-            if (iconUrl != null) {
-                try {
-                    // Usar Toolkit para carregar ICO (melhor suporte)
-                    iconImage = Toolkit.getDefaultToolkit().getImage(iconUrl);
-                    logger.debug("Ícone carregado de /icon.ico via Toolkit");
-                } catch (Exception e) {
-                    logger.debug("Erro ao carregar icon.ico via Toolkit", e);
-                }
-            }
-            
-            // Método 2: Tentar icon.png como fallback
-            if (iconImage == null) {
-                iconUrl = getClass().getResource("/icon.png");
-                if (iconUrl != null) {
-                    try {
-                        iconImage = new ImageIcon(iconUrl).getImage();
-                        logger.debug("Ícone carregado de /icon.png");
-                    } catch (Exception e) {
-                        logger.debug("Erro ao carregar icon.png", e);
-                    }
-                }
-            }
-            
-            // Método 3: Tentar carregar do caminho relativo ao executável
-            if (iconImage == null) {
-                try {
-                    java.io.File iconFile = null;
-                    // Tentar vários caminhos possíveis
-                    String[] possiblePaths = {
-                        "../icon/icon.ico",
-                        "icon/icon.ico",
-                        "../../icon/icon.ico",
-                        System.getProperty("user.dir") + "/icon/icon.ico"
-                    };
-                    
-                    for (String path : possiblePaths) {
-                        iconFile = new java.io.File(path);
-                        if (iconFile.exists() && iconFile.isFile()) {
-                            iconImage = Toolkit.getDefaultToolkit().getImage(iconFile.getAbsolutePath());
-                            logger.debug("Ícone carregado de: " + iconFile.getAbsolutePath());
-                            break;
-                        }
-                    }
-                } catch (Exception e) {
-                    logger.debug("Erro ao carregar ícone de caminho relativo", e);
-                }
-            }
-            
-            // Se encontrou o ícone, aplicá-lo
-            if (iconImage != null) {
-                try {
-                    // Criar múltiplos tamanhos para melhor compatibilidade
-                    java.util.List<Image> iconImages = new java.util.ArrayList<>();
-                    
-                    // Adicionar a imagem em diferentes tamanhos
-                    for (int size : new int[] { 16, 32, 48, 64, 128, 256 }) {
-                        Image scaledImage = iconImage.getScaledInstance(size, size, Image.SCALE_SMOOTH);
-                        iconImages.add(scaledImage);
-                    }
-                    
-                    // Adicionar também a imagem original
-                    iconImages.add(iconImage);
-                    
-                    frame.setIconImages(iconImages);
-                    logger.debug("Ícone aplicado à janela com sucesso");
-                    return;
-                } catch (Exception e) {
-                    logger.warn("Erro ao aplicar ícone à janela", e);
-                }
-            }
-
-            // Último fallback: usar ícone padrão do sistema (não criar "L")
-            logger.warn("Ícone customizado não encontrado, usando ícone padrão do sistema");
-            // Não criar ícone programático - deixar o Windows usar o ícone do executável
-            
-        } catch (Exception e) {
-            logger.warn("Não foi possível definir ícone da janela", e);
-        }
+        WindowsIconUtil.applyIconToWindow(frame);
     }
 
     private void setupSystemTray() {
@@ -577,9 +494,9 @@ public class StatusWindow {
 
         try {
             systemTray = SystemTray.getSystemTray();
-            
-            // Criar ícone para a bandeja
-            Image trayImage = createTrayIconImage();
+
+            // Criar ícone para a bandeja usando o utilitário
+            Image trayImage = WindowsIconUtil.createTrayIcon();
             if (trayImage == null) {
                 // Criar ícone simples se não conseguir carregar
                 trayImage = createDefaultTrayIcon();
@@ -587,73 +504,64 @@ public class StatusWindow {
 
             // Criar menu popup para a bandeja
             PopupMenu popup = new PopupMenu();
-            
+
             MenuItem restoreItem = new MenuItem("Restaurar Janela");
             restoreItem.addActionListener(e -> restoreFromTray());
             popup.add(restoreItem);
-            
+
             popup.addSeparator();
-            
+
             MenuItem exitItem = new MenuItem("Sair");
             exitItem.addActionListener(e -> shutdownApplication());
             popup.add(exitItem);
 
-            // Criar TrayIcon
-            trayIcon = new TrayIcon(trayImage, WINDOW_TITLE, popup);
-            trayIcon.setImageAutoSize(true);
-            trayIcon.addActionListener(e -> restoreFromTray());
+            // Criar TrayIcon com imagem
+            if (trayImage != null) {
+                trayIcon = new TrayIcon(trayImage, WINDOW_TITLE, popup);
+                // Habilitar auto-size para melhor compatibilidade
+                trayIcon.setImageAutoSize(true);
+                trayIcon.addActionListener(e -> restoreFromTray());
 
-            // Adicionar à bandeja
-            systemTray.add(trayIcon);
-            logger.info("Ícone da bandeja configurado com sucesso");
+                // Adicionar à bandeja
+                systemTray.add(trayIcon);
+                int width = trayImage.getWidth(null);
+                int height = trayImage.getHeight(null);
+                logger.info("Ícone da bandeja configurado com sucesso - tamanho: {}x{}",
+                        width > 0 ? width : "desconhecido",
+                        height > 0 ? height : "desconhecido");
+            } else {
+                logger.error("Não foi possível criar ícone da bandeja - imagem é null");
+            }
         } catch (AWTException e) {
             logger.error("Erro ao configurar SystemTray", e);
         }
     }
 
-    private Image createTrayIconImage() {
-        try {
-            // Tentar carregar o ícone dos resources
-            java.net.URL iconUrl = getClass().getResource("/icon.ico");
-            if (iconUrl != null) {
-                return Toolkit.getDefaultToolkit().getImage(iconUrl);
-            }
-            
-            iconUrl = getClass().getResource("/icon.png");
-            if (iconUrl != null) {
-                return new ImageIcon(iconUrl).getImage();
-            }
-        } catch (Exception e) {
-            logger.debug("Erro ao carregar ícone para bandeja", e);
-        }
-        return null;
-    }
-
     private Image createDefaultTrayIcon() {
-        // Criar um ícone simples programaticamente
-        BufferedImage image = new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB);
-        Graphics2D g = image.createGraphics();
+        // Criar um ícone simples programaticamente como fallback
+        BufferedImage baseImage = new BufferedImage(32, 32, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = baseImage.createGraphics();
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        
+        g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+
         // Desenhar um círculo laranja com emoji de hambúrguer
         g.setColor(PRIMARY_ORANGE);
-        g.fillOval(0, 0, 16, 16);
+        g.fillOval(0, 0, 32, 32);
         g.setColor(Color.WHITE);
-        g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 12));
-        g.drawString("🍔", 2, 13);
-        
+        g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 24));
+        g.drawString("🍔", 4, 26);
+
         g.dispose();
-        return image;
+        return baseImage;
     }
 
     private void minimizeToTray() {
         if (frame != null && systemTray != null && trayIcon != null) {
             frame.setVisible(false);
             trayIcon.displayMessage(
-                WINDOW_TITLE,
-                "Aplicação minimizada para a bandeja",
-                TrayIcon.MessageType.INFO
-            );
+                    WINDOW_TITLE,
+                    "Aplicação minimizada para a bandeja",
+                    TrayIcon.MessageType.INFO);
             logger.info("Janela minimizada para a bandeja");
         }
     }
@@ -670,26 +578,26 @@ public class StatusWindow {
 
     private void shutdownApplication() {
         logger.info("Encerrando aplicação...");
-        
+
         // Remover ícone da bandeja
         if (systemTray != null && trayIcon != null) {
             systemTray.remove(trayIcon);
         }
-        
+
         // Fechar janela
         if (frame != null) {
             frame.dispose();
         }
-        
+
         // Encerrar aplicação Spring Boot
         try {
-            if (applicationContext instanceof ConfigurableApplicationContext) {
-                ((ConfigurableApplicationContext) applicationContext).close();
+            if (applicationContext instanceof ConfigurableApplicationContext configurableContext) {
+                configurableContext.close();
             }
         } catch (Exception e) {
             logger.error("Erro ao encerrar aplicação Spring Boot", e);
         }
-        
+
         // Garantir saída completa
         System.exit(0);
     }
