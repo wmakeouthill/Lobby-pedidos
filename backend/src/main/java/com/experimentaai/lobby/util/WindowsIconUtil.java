@@ -56,17 +56,17 @@ public class WindowsIconUtil {
         }
 
         if (icoUrl != null) {
-            logger.debug("Tentando carregar ícone de: {} (protocolo: {})", icoUrl, icoUrl.getProtocol());
+            logger.info("Tentando carregar ícone de resource: {} (protocolo: {})", icoUrl, icoUrl.getProtocol());
             iconImage = loadIconFromUrl(icoUrl);
             if (iconImage != null) {
                 iconSource = "/icon.ico (resources)";
                 logger.info("Ícone carregado de: {} ({}x{})", iconSource,
                         iconImage.getWidth(), iconImage.getHeight());
             } else {
-                logger.debug("Falha ao carregar ícone de {}", icoUrl);
+                logger.warn("Falha ao carregar ícone de resource: {}", icoUrl);
             }
         } else {
-            logger.debug("Ícone não encontrado em /icon.ico (resources) - tentando métodos alternativos");
+            logger.info("Ícone não encontrado em /icon.ico (resources) - tentando métodos alternativos");
         }
 
         // Método 2: Tentar carregar icon.png dos resources como fallback
@@ -121,11 +121,13 @@ public class WindowsIconUtil {
                         userDir + "\\icon\\icon.ico" // Windows path
                 };
 
-                logger.debug("Buscando ícone em caminhos absolutos. user.dir: {}", userDir);
+                logger.info("Buscando ícone em caminhos absolutos. user.dir: {}", userDir);
                 for (String path : resourcePaths) {
                     File iconFile = new File(path);
+                    logger.debug("Verificando caminho: {} (existe: {}, é arquivo: {})",
+                            path, iconFile.exists(), iconFile.isFile());
                     if (iconFile.exists() && iconFile.isFile()) {
-                        logger.debug("Arquivo encontrado! Tentando carregar ícone de: {}", iconFile.getAbsolutePath());
+                        logger.info("Arquivo encontrado! Tentando carregar ícone de: {}", iconFile.getAbsolutePath());
                         iconImage = loadIconFromFile(iconFile);
                         if (iconImage != null) {
                             iconSource = iconFile.getAbsolutePath();
@@ -133,10 +135,8 @@ public class WindowsIconUtil {
                                     iconImage.getWidth(), iconImage.getHeight());
                             break;
                         } else {
-                            logger.debug("Arquivo existe mas falhou ao carregar: {}", iconFile.getAbsolutePath());
+                            logger.warn("Arquivo existe mas falhou ao carregar: {}", iconFile.getAbsolutePath());
                         }
-                    } else {
-                        logger.debug("Arquivo não encontrado: {}", path);
                     }
                 }
             } catch (Exception e) {

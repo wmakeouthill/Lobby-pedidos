@@ -16,6 +16,7 @@ const FilaPedidos = ({ modo, onTrocarModo }) => {
   const [pedidoAnimando, setPedidoAnimando] = useState(null); // ID do pedido em animação
   const [pedidoAnimandoStatus, setPedidoAnimandoStatus] = useState(null); // Status do pedido em animação
   const [pedidoAnimandoDados, setPedidoAnimandoDados] = useState(null); // Dados do pedido em animação (com status antigo)
+  const pedidoAnimandoRef = useRef(null); // Ref para acessar pedidoAnimando em callbacks
   const [paginaPreparando, setPaginaPreparando] = useState(0); // Página atual da lista de preparando
   const [paginaPronto, setPaginaPronto] = useState(0); // Página atual da lista de pronto
   const [itensPorPaginaPreparando, setItensPorPaginaPreparando] = useState(null);
@@ -92,22 +93,31 @@ const FilaPedidos = ({ modo, onTrocarModo }) => {
 
   // Animar transição de status
   const animarTransicaoStatus = (pedido, pedidoAnterior) => {
+    console.log('🎬 Iniciando animação de transição:', pedido.id, pedidoAnterior.nomeCliente);
     setPedidoAnimando(pedido.id);
+    pedidoAnimandoRef.current = pedido.id; // Atualizar ref também
     setPedidoAnimandoStatus('PREPARANDO'); // Começar na lista de preparando
     // Guardar uma cópia do pedido com status antigo para mostrar na lista de preparando
     setPedidoAnimandoDados({ ...pedidoAnterior, status: 'PREPARANDO' });
+    console.log('🎬 Estado de animação configurado - Fase PREPARANDO');
     
     // Após metade da animação, mudar para a lista de pronto
     setTimeout(() => {
+      console.log('🎬 Mudando para fase PRONTO');
       setPedidoAnimandoStatus('PRONTO');
       setPedidoAnimandoDados({ ...pedido, status: 'PRONTO' });
     }, 500);
     
     // Remover animação após a animação completar (1 segundo)
+    // E atualizar o estado com os dados corretos
     setTimeout(() => {
+      console.log('🎬 Finalizando animação');
       setPedidoAnimando(null);
+      pedidoAnimandoRef.current = null; // Limpar ref também
       setPedidoAnimandoStatus(null);
       setPedidoAnimandoDados(null);
+      // Forçar atualização do estado após animação terminar
+      carregarPedidos();
     }, 1000);
   };
 
@@ -131,9 +141,13 @@ const FilaPedidos = ({ modo, onTrocarModo }) => {
       }
       
       // Detectar mudanças de status para animação (funciona em ambos os modos)
+      // Mas não animar se já houver uma animação de transição em andamento
       let pedidoMudouStatus = null;
       let pedidoAnterior = null;
-      if (pedidosAnterioresRef.current.length > 0 && houveMudancas) {
+      // Usar ref para garantir acesso ao valor atual mesmo em callbacks
+      const animacaoTransicaoEmAndamento = pedidoAnimandoRef.current !== null;
+      
+      if (pedidosAnterioresRef.current.length > 0 && houveMudancas && !animacaoTransicaoEmAndamento) {
         pedidoMudouStatus = detectarMudancaStatus(pedidosAnterioresRef.current, dados);
         if (pedidoMudouStatus) {
           pedidoAnterior = pedidosAnterioresRef.current.find(p => p.id === pedidoMudouStatus.id);
@@ -196,10 +210,24 @@ const FilaPedidos = ({ modo, onTrocarModo }) => {
       
       // SEMPRE atualizar estado com dados do cache (fonte de verdade)
       // Atualizar apenas se houver mudanças para evitar loops infinitos
+      // IMPORTANTE: Durante animação, precisamos manter o pedido na lista original
+      // mas também precisamos atualizar o estado para que outros pedidos sejam atualizados
       if (houveMudancas || primeiraCarga) {
         pedidosAnterioresRef.current = dados;
-        setPedidos(dados);
-        console.log(`✅ Estado atualizado com dados do cache (fonte de verdade): ${dados.length} pedidos`);
+        
+        // Se houver animação de transição em andamento, precisamos ser cuidadosos
+        // Não queremos remover o pedido animando da lista antes da animação terminar
+        if (animacaoTransicaoEmAndamento) {
+          // Durante a animação, não atualizar o estado visual para não interferir
+          // A animação controla a exibição através de pedidoAnimandoDados
+          console.log(`⏸️ Animação em andamento (pedido ${pedidoAnimandoRef.current}), não atualizando estado visual`);
+          // Apenas atualizar a referência para próximas comparações
+          // Mas não atualizar o estado visual para não interferir na animação
+        } else {
+          // Sem animação, atualizar normalmente
+          setPedidos(dados);
+          console.log(`✅ Estado atualizado com dados do cache (fonte de verdade): ${dados.length} pedidos`);
+        }
       }
       
     } catch (err) {
@@ -259,13 +287,9 @@ const FilaPedidos = ({ modo, onTrocarModo }) => {
 
   // Filtrar pedidos, mas manter o pedido animando na lista original durante a animação
   const pedidosPreparando = pedidos.filter(p => {
-    // Se o pedido está animando e ainda está na fase de saída, mostrar na lista de preparando
-    if (pedidoAnimando === p.id && pedidoAnimandoStatus === 'PREPARANDO') {
-      return true; // Manter na lista de preparando durante animação de saída
-    }
-    // Se o pedido está animando mas já mudou para a fase de entrada, não mostrar aqui
-    if (pedidoAnimando === p.id && pedidoAnimandoStatus === 'PRONTO') {
-      return false; // Não mostrar na lista de preparando durante animação de entrada
+    // Se o pedido está animando, não incluí-lo aqui (será adicionado separadamente)
+    if (pedidoAnimando === p.id) {
+      return false;
     }
     return p.status === 'PREPARANDO';
   });
@@ -275,17 +299,14 @@ const FilaPedidos = ({ modo, onTrocarModo }) => {
     const jaExiste = pedidosPreparando.some(p => p.id === pedidoAnimandoDados.id);
     if (!jaExiste) {
       pedidosPreparando.push(pedidoAnimandoDados);
+      console.log('➕ Pedido adicionado à lista PREPARANDO para animação:', pedidoAnimandoDados.nomeCliente);
     }
   }
   
   const pedidosProntos = pedidos.filter(p => {
-    // Se o pedido está animando e está na fase de entrada, mostrar na lista de pronto
-    if (pedidoAnimando === p.id && pedidoAnimandoStatus === 'PRONTO') {
-      return true; // Mostrar na lista de pronto durante animação de entrada
-    }
-    // Se o pedido está animando mas ainda está na fase de saída, não mostrar aqui ainda
-    if (pedidoAnimando === p.id && pedidoAnimandoStatus === 'PREPARANDO') {
-      return false; // Não mostrar na lista de pronto durante animação de saída
+    // Se o pedido está animando, não incluí-lo aqui (será adicionado separadamente)
+    if (pedidoAnimando === p.id) {
+      return false;
     }
     return p.status === 'PRONTO';
   });
@@ -295,6 +316,7 @@ const FilaPedidos = ({ modo, onTrocarModo }) => {
     const jaExiste = pedidosProntos.some(p => p.id === pedidoAnimandoDados.id);
     if (!jaExiste) {
       pedidosProntos.push(pedidoAnimandoDados);
+      console.log('➕ Pedido adicionado à lista PRONTO para animação:', pedidoAnimandoDados.nomeCliente);
     }
   }
 
@@ -533,15 +555,29 @@ const FilaPedidos = ({ modo, onTrocarModo }) => {
       // Chamar API - banco de dados é fonte de verdade
       await pedidoService.marcarComoPronto(id);
       
+      console.log('🔍 Verificando condições para animação:');
+      console.log('  - Status anterior:', pedidoAntes.status);
+      console.log('  - Animação ativada:', animacaoAtivada);
+      console.log('  - Modo gestor:', isModoGestor);
+      
       // Animar transição se mudou de PREPARANDO para PRONTO (apenas se animação estiver ativada)
+      // IMPORTANTE: A animação deve funcionar também no modo gestor!
       if (pedidoAntes.status === 'PREPARANDO' && animacaoAtivada) {
+        console.log('✅ Condições atendidas, iniciando animação');
         const pedidoAtualizado = { ...pedidoAntes, status: 'PRONTO' };
         animarTransicaoStatus(pedidoAtualizado, pedidoAntes);
+        // Não recarregar aqui - animarTransicaoStatus já chama carregarPedidos ao final
+      } else {
+        console.log('❌ Condições não atendidas para animação');
+        if (pedidoAntes.status !== 'PREPARANDO') {
+          console.log('  - Razão: Status anterior não é PREPARANDO');
+        }
+        if (!animacaoAtivada) {
+          console.log('  - Razão: Animação está desativada');
+        }
+        // Se não houver animação, recarregar imediatamente
+        await carregarPedidos();
       }
-      
-      // Recarregar do banco (fonte de verdade) para sincronizar
-      // O backend já atualiza o cache automaticamente
-      await carregarPedidos();
     } catch (err) {
       console.error('❌ Erro ao marcar pedido como pronto:', err);
       const errorMessage = err.response?.data?.message || err.message || 'Erro ao marcar pedido como pronto';
