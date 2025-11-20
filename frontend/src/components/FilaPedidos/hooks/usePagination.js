@@ -1,0 +1,127 @@
+import { useState, useEffect, useRef } from 'react';
+
+const usePagination = (items, containerRef, isGestor) => {
+    const [pagina, setPagina] = useState(0);
+    const [itensPorPagina, setItensPorPagina] = useState(null);
+    const paginacaoIntervalRef = useRef(null);
+
+    // Calcular itens por página
+    useEffect(() => {
+        if (isGestor) {
+            setItensPorPagina(null);
+            return;
+        }
+
+        const calcularItens = () => {
+            if (!containerRef.current) return null;
+
+            const container = containerRef.current;
+            const alturaContainer = container.clientHeight;
+            const primeiroItem = container.querySelector(".card-pedido");
+
+            if (!primeiroItem || alturaContainer === 0) return null;
+
+            const alturaItem = primeiroItem.offsetHeight;
+            const gap = 15; // gap entre itens
+            const itens = Math.floor((alturaContainer + gap) / (alturaItem + gap));
+
+            return Math.max(1, itens);
+        };
+
+        const recalcular = () => {
+            const itens = calcularItens();
+            if (itens !== null) {
+                setItensPorPagina(itens);
+            }
+        };
+
+        const timeoutId1 = setTimeout(recalcular, 100);
+        const timeoutId2 = setTimeout(recalcular, 600);
+
+        return () => {
+            clearTimeout(timeoutId1);
+            clearTimeout(timeoutId2);
+        };
+    }, [isGestor, items.length]); // Recalcular quando itens mudam
+
+    // Lógica de paginação automática
+    useEffect(() => {
+        if (isGestor) {
+            if (paginacaoIntervalRef.current) {
+                clearInterval(paginacaoIntervalRef.current);
+                paginacaoIntervalRef.current = null;
+            }
+            setPagina(0);
+            return;
+        }
+
+        const ajustarPagina = () => {
+            if (itensPorPagina && items.length > itensPorPagina) {
+                const totalPaginas = Math.ceil(items.length / itensPorPagina);
+                setPagina(prev => {
+                    if (totalPaginas <= 1) return 0;
+                    return prev >= totalPaginas ? totalPaginas - 1 : prev;
+                });
+            } else {
+                setPagina(0);
+            }
+        };
+
+        const trocarPagina = () => {
+            if (itensPorPagina && items.length > itensPorPagina) {
+                const totalPaginas = Math.ceil(items.length / itensPorPagina);
+                if (totalPaginas > 1) {
+                    setPagina(prev => (prev + 1) % totalPaginas);
+                }
+            }
+        };
+
+        const timeoutId = setTimeout(() => {
+            ajustarPagina();
+
+            if (paginacaoIntervalRef.current) {
+                clearInterval(paginacaoIntervalRef.current);
+            }
+
+            if (itensPorPagina && items.length > itensPorPagina) {
+                paginacaoIntervalRef.current = setInterval(trocarPagina, 5000);
+            }
+        }, 300);
+
+        return () => {
+            clearTimeout(timeoutId);
+            if (paginacaoIntervalRef.current) {
+                clearInterval(paginacaoIntervalRef.current);
+            }
+        };
+    }, [isGestor, items.length, itensPorPagina]);
+
+    const itensPaginados = (() => {
+        if (isGestor || !itensPorPagina || items.length <= itensPorPagina) {
+            return items;
+        }
+        const inicio = pagina * itensPorPagina;
+        return items.slice(inicio, inicio + itensPorPagina);
+    })();
+
+    const infoPagina = (() => {
+        if (isGestor || !itensPorPagina || items.length <= itensPorPagina) {
+            return { totalPaginas: 1, paginaAtual: 0, temPagina: false };
+        }
+        const totalPaginas = Math.ceil(items.length / itensPorPagina);
+        return {
+            totalPaginas,
+            paginaAtual: pagina,
+            temPagina: totalPaginas > 1
+        };
+    })();
+
+    return {
+        itensPaginados,
+        infoPagina,
+        pagina,
+        setPagina
+    };
+};
+
+export default usePagination;

@@ -12,33 +12,27 @@ import org.springframework.stereotype.Component;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
-import java.awt.Desktop;
-import java.awt.image.BufferedImage;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.net.URI;
-import java.net.URISyntaxException;
 import java.util.List;
 
 @Component
 public class StatusWindow {
 
     private static final Logger logger = LoggerFactory.getLogger(StatusWindow.class);
-    private static final int WINDOW_WIDTH = 650;
-    private static final int WINDOW_HEIGHT = 600;
-    private static final String ERROR_ABRIR_NAVEGADOR = "Erro ao abrir navegador: ";
-    private static final String URL_LABEL = "\nURL: ";
     private static final String WINDOW_TITLE = "Lobby Pedidos - Experimenta aí";
 
-    private static final Color PRIMARY_ORANGE = new Color(255, 107, 53);
-    private static final Color PRIMARY_YELLOW = new Color(255, 213, 79);
-    private static final Color PRIMARY_RED = new Color(220, 20, 60);
-    private static final Color BACKGROUND_DARK = new Color(40, 40, 40);
-    private static final Color CARD_BACKGROUND = new Color(255, 255, 255);
-    private static final Color TEXT_SECONDARY = new Color(100, 100, 100);
+    // Constants for UI dimensions
+    private static final int WINDOW_WIDTH = 650;
+    private static final int WINDOW_HEIGHT = 600;
+    private static final Dimension MIN_WINDOW_SIZE = new Dimension(550, 450);
 
     private final NetworkAddressCollector addressCollector;
     private final ApplicationContext applicationContext;
+
     private JFrame frame;
     private volatile boolean windowShown = false;
     private SystemTray systemTray;
@@ -49,17 +43,56 @@ public class StatusWindow {
         this.applicationContext = applicationContext;
     }
 
+    /**
+     * Theme constants for the application UI.
+     */
+    private static class Theme {
+        static final Color PRIMARY_ORANGE = new Color(255, 107, 53);
+        static final Color PRIMARY_YELLOW = new Color(255, 213, 79);
+        static final Color PRIMARY_RED = new Color(220, 20, 60);
+        static final Color BACKGROUND_DARK = new Color(40, 40, 40);
+        static final Color CARD_BACKGROUND = new Color(255, 255, 255);
+        static final Color TEXT_SECONDARY = new Color(100, 100, 100);
+        static final Color TEXT_WHITE = Color.WHITE;
+
+        static final Font FONT_EMOJI = new Font(Font.SANS_SERIF, Font.PLAIN, 28);
+        static final Font FONT_TITLE = new Font(Font.SANS_SERIF, Font.BOLD, 24);
+        static final Font FONT_SUBTITLE = new Font(Font.SANS_SERIF, Font.BOLD, 16);
+        static final Font FONT_BADGE = new Font(Font.SANS_SERIF, Font.BOLD, 12);
+        static final Font FONT_LABEL = new Font(Font.SANS_SERIF, Font.BOLD, 11);
+        static final Font FONT_VALUE = new Font(Font.MONOSPACED, Font.BOLD, 11);
+        static final Font FONT_BUTTON = new Font(Font.SANS_SERIF, Font.BOLD, 12);
+        static final Font FONT_DNS = new Font(Font.MONOSPACED, Font.BOLD, 15);
+        static final Font FONT_TYPE = new Font(Font.SANS_SERIF, Font.BOLD, 10);
+    }
+
     @SuppressWarnings("java:S2139")
     public void show() {
-        if (!isGuiAvailable()) {
-            logger.warn("GUI não disponível para exibir janela");
+        if (GraphicsEnvironment.isHeadless()) {
+            logger.warn("GUI não disponível (headless mode). Janela não será exibida.");
             return;
         }
 
-        // Verificar se já existe uma janela com o mesmo título aberta no sistema
+        if (focusExistingWindow()) {
+            return;
+        }
+
+        synchronized (this) {
+            if (windowShown) {
+                logger.warn("Janela já foi exibida. Ignorando chamada duplicada.");
+                bringToFront();
+                return;
+            }
+            windowShown = true;
+        }
+
+        launchWindow();
+    }
+
+    private boolean focusExistingWindow() {
         Window existingWindow = findExistingWindow();
         if (existingWindow != null) {
-            logger.info("Janela '{}' já está aberta. Trazendo para frente ao invés de criar nova.", WINDOW_TITLE);
+            logger.info("Janela '{}' já está aberta. Trazendo para frente.", WINDOW_TITLE);
             SwingUtilities.invokeLater(() -> {
                 existingWindow.toFront();
                 existingWindow.requestFocus();
@@ -67,84 +100,49 @@ public class StatusWindow {
                     jframe.setState(Frame.NORMAL);
                 }
             });
-            return;
+            return true;
         }
+        return false;
+    }
 
-        // Garantir que apenas uma janela seja criada nesta instância
-        synchronized (this) {
-            if (windowShown) {
-                logger.warn("Janela já foi exibida. Ignorando chamada duplicada.");
-                if (frame != null && frame.isVisible()) {
-                    frame.toFront();
-                    frame.requestFocus();
-                }
-                return;
+    private Window findExistingWindow() {
+        for (Window window : Window.getWindows()) {
+            if (window instanceof JFrame jframe && WINDOW_TITLE.equals(jframe.getTitle()) && jframe.isVisible()) {
+                return window;
             }
-            windowShown = true;
         }
+        return null;
+    }
 
+    private void bringToFront() {
+        if (frame != null && frame.isVisible()) {
+            frame.toFront();
+            frame.requestFocus();
+        }
+    }
+
+    private void launchWindow() {
         try {
-            // Verificar se já estamos na EDT
             if (SwingUtilities.isEventDispatchThread()) {
-                // Já estamos na EDT, criar janela diretamente
-                createWindow();
-                frame.setVisible(true);
-                frame.toFront();
-                frame.requestFocus();
+                initAndShowFrame();
             } else {
-                // Não estamos na EDT, usar invokeAndWait para garantir execução síncrona
-                SwingUtilities.invokeAndWait(() -> {
-                    createWindow();
-                    frame.setVisible(true);
-                    frame.toFront();
-                    frame.requestFocus();
-                });
+                SwingUtilities.invokeAndWait(this::initAndShowFrame);
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            String errorMessage = String.format("Thread interrompida durante criação da janela de status. Thread: %s",
-                    Thread.currentThread().getName());
-            logger.error(errorMessage, e);
-            throw new StatusWindowException(errorMessage, e);
+            throw new StatusWindowException("Thread interrompida durante criação da janela", e);
         } catch (InvocationTargetException e) {
-            Throwable cause = e.getCause() != null ? e.getCause() : e;
-            String errorMessage = String.format("Erro ao invocar criação da janela de status. Causa: %s [%s]",
-                    cause.getClass().getSimpleName(), cause.getMessage());
-            logger.error(errorMessage, cause);
-            throw new StatusWindowException(errorMessage, cause);
+            throw new StatusWindowException("Erro ao invocar criação da janela", e.getCause());
         } catch (Exception e) {
-            String errorMessage = String.format("Falha ao exibir janela de status. Causa: %s [%s]",
-                    e.getClass().getSimpleName(), e.getMessage());
-            logger.error(errorMessage, e);
-            throw new StatusWindowException(errorMessage, e);
+            throw new StatusWindowException("Falha ao exibir janela de status", e);
         }
     }
 
-    private boolean isGuiAvailable() {
-        return !GraphicsEnvironment.isHeadless();
-    }
-
-    /**
-     * Verifica se já existe uma janela com o mesmo título aberta no sistema.
-     * Isso previne a abertura de múltiplas janelas quando a aplicação é iniciada
-     * várias vezes.
-     *
-     * @return A janela existente se encontrada, null caso contrário
-     */
-    private Window findExistingWindow() {
-        try {
-            Window[] windows = Window.getWindows();
-            for (Window window : windows) {
-                if (window instanceof JFrame jframe
-                        && WINDOW_TITLE.equals(jframe.getTitle())
-                        && jframe.isVisible()) {
-                    return window;
-                }
-            }
-        } catch (Exception e) {
-            logger.warn("Erro ao verificar janelas existentes", e);
-        }
-        return null;
+    private void initAndShowFrame() {
+        createWindow();
+        frame.setVisible(true);
+        frame.toFront();
+        frame.requestFocus();
     }
 
     private void createWindow() {
@@ -153,75 +151,79 @@ public class StatusWindow {
         frame.setResizable(true);
         frame.setSize(WINDOW_WIDTH, WINDOW_HEIGHT);
         frame.setLocationRelativeTo(null);
-        frame.setMinimumSize(new Dimension(550, 450));
+        frame.setMinimumSize(MIN_WINDOW_SIZE);
 
-        // Adicionar ícone à janela
-        setWindowIcon();
+        // Apply icons using the utility
+        WindowsIconUtil.applyIconToWindow(frame);
 
-        // Configurar SystemTray
         setupSystemTray();
+        setupWindowListeners();
 
+        frame.setContentPane(createMainPanel());
+    }
+
+    private void setupWindowListeners() {
         frame.addWindowListener(new java.awt.event.WindowAdapter() {
             @Override
             public void windowClosing(java.awt.event.WindowEvent windowEvent) {
-                int option = JOptionPane.showConfirmDialog(
-                        frame,
-                        "Deseja realmente fechar a aplicação?",
-                        "Confirmar Fechamento",
-                        JOptionPane.YES_NO_OPTION,
-                        JOptionPane.QUESTION_MESSAGE);
-                if (option == JOptionPane.YES_OPTION) {
-                    shutdownApplication();
-                }
+                confirmAndShutdown();
             }
         });
-
-        JPanel contentPanel = createContentPanel();
-        frame.setContentPane(contentPanel);
     }
 
-    private JPanel createContentPanel() {
+    private void confirmAndShutdown() {
+        int option = JOptionPane.showConfirmDialog(
+                frame,
+                "Deseja realmente fechar a aplicação?",
+                "Confirmar Fechamento",
+                JOptionPane.YES_NO_OPTION,
+                JOptionPane.QUESTION_MESSAGE);
+
+        if (option == JOptionPane.YES_OPTION) {
+            shutdownApplication();
+        }
+    }
+
+    private JPanel createMainPanel() {
         JPanel panel = new GradientPanel();
         panel.setLayout(new BorderLayout(15, 15));
         panel.setBorder(new EmptyBorder(20, 20, 20, 20));
 
-        panel.add(createHeaderPanel(), BorderLayout.NORTH);
-        panel.add(createAddressesScrollPane(), BorderLayout.CENTER);
-        panel.add(createFooterPanel(), BorderLayout.SOUTH);
+        panel.add(createHeader(), BorderLayout.NORTH);
+        panel.add(createContent(), BorderLayout.CENTER);
+        panel.add(createFooter(), BorderLayout.SOUTH);
 
         return panel;
     }
 
-    private JPanel createHeaderPanel() {
+    // --- Header Section ---
+
+    private JPanel createHeader() {
         JPanel panel = new JPanel(new BorderLayout(10, 10));
         panel.setOpaque(false);
         panel.setBorder(new EmptyBorder(0, 0, 15, 0));
 
-        JPanel titlePanel = createTitlePanel();
-        JLabel subtitle = createSubtitleLabel();
-        JLabel statusBadge = createStatusBadge();
-
-        panel.add(titlePanel, BorderLayout.NORTH);
-        panel.add(subtitle, BorderLayout.CENTER);
-        panel.add(statusBadge, BorderLayout.SOUTH);
+        panel.add(createTitleBlock(), BorderLayout.NORTH);
+        panel.add(createSubtitle(), BorderLayout.CENTER);
+        panel.add(createStatusBadge(), BorderLayout.SOUTH);
 
         return panel;
     }
 
-    private JPanel createTitlePanel() {
+    private JPanel createTitleBlock() {
         JPanel panel = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 5));
         panel.setOpaque(false);
 
         JLabel emoji = new JLabel("🍔");
-        emoji.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 28));
+        emoji.setFont(Theme.FONT_EMOJI);
 
         JLabel indicator = new JLabel("●");
-        indicator.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 24));
-        indicator.setForeground(PRIMARY_YELLOW);
+        indicator.setFont(Theme.FONT_TITLE);
+        indicator.setForeground(Theme.PRIMARY_YELLOW);
 
         JLabel title = new JLabel("Sistema Online");
-        title.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 24));
-        title.setForeground(PRIMARY_RED);
+        title.setFont(Theme.FONT_TITLE);
+        title.setForeground(Theme.PRIMARY_RED);
 
         panel.add(emoji);
         panel.add(indicator);
@@ -230,146 +232,118 @@ public class StatusWindow {
         return panel;
     }
 
-    private JLabel createSubtitleLabel() {
+    private JLabel createSubtitle() {
         JLabel label = new JLabel(WINDOW_TITLE);
-        label.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 16));
-        label.setForeground(Color.WHITE);
+        label.setFont(Theme.FONT_SUBTITLE);
+        label.setForeground(Theme.TEXT_WHITE);
         label.setHorizontalAlignment(SwingConstants.CENTER);
         return label;
     }
 
     private JLabel createStatusBadge() {
         JLabel badge = new JLabel("✓ Status: Operacional");
-        badge.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 12));
-        badge.setForeground(Color.WHITE);
+        badge.setFont(Theme.FONT_BADGE);
+        badge.setForeground(Theme.PRIMARY_RED);
         badge.setOpaque(true);
-        badge.setBackground(PRIMARY_YELLOW);
-        badge.setForeground(PRIMARY_RED);
+        badge.setBackground(Theme.PRIMARY_YELLOW);
         badge.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(PRIMARY_RED, 2),
+                BorderFactory.createLineBorder(Theme.PRIMARY_RED, 2),
                 new EmptyBorder(8, 20, 8, 20)));
         badge.setHorizontalAlignment(SwingConstants.CENTER);
         return badge;
     }
 
-    private JScrollPane createAddressesScrollPane() {
-        JPanel addressesPanel = createAddressesPanel();
-        JScrollPane scrollPane = new JScrollPane(addressesPanel);
-        scrollPane.setBorder(BorderFactory.createTitledBorder(
-                BorderFactory.createTitledBorder(
-                        BorderFactory.createLineBorder(PRIMARY_YELLOW, 2),
-                        "📍 Endereços Disponíveis",
-                        0, 0,
-                        new Font(Font.SANS_SERIF, Font.BOLD, 14),
-                        Color.WHITE)));
-        scrollPane.setOpaque(false);
-        scrollPane.getViewport().setOpaque(false);
-        scrollPane.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED);
-        return scrollPane;
-    }
+    // --- Content Section ---
 
-    private JPanel createAddressesPanel() {
-        JPanel panel = new JPanel();
-        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
-        panel.setOpaque(false);
-        panel.setBorder(new EmptyBorder(10, 10, 10, 10));
+    private JScrollPane createContent() {
+        JPanel addressesPanel = new JPanel();
+        addressesPanel.setLayout(new BoxLayout(addressesPanel, BoxLayout.Y_AXIS));
+        addressesPanel.setOpaque(false);
+        addressesPanel.setBorder(new EmptyBorder(10, 10, 10, 10));
 
         List<NetworkAddress> addresses = addressCollector.collect();
         for (NetworkAddress address : addresses) {
-            panel.add(createAddressCard(address));
-            panel.add(Box.createVerticalStrut(12));
+            addressesPanel.add(createAddressCard(address));
+            addressesPanel.add(Box.createVerticalStrut(12));
         }
 
-        return panel;
+        JScrollPane scrollPane = new JScrollPane(addressesPanel);
+        scrollPane.setBorder(BorderFactory.createTitledBorder(
+                BorderFactory.createTitledBorder(
+                        BorderFactory.createLineBorder(Theme.PRIMARY_YELLOW, 2),
+                        "📍 Endereços Disponíveis",
+                        0, 0,
+                        new Font(Font.SANS_SERIF, Font.BOLD, 14),
+                        Theme.TEXT_WHITE)));
+        scrollPane.setOpaque(false);
+        scrollPane.getViewport().setOpaque(false);
+        scrollPane.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED);
+
+        return scrollPane;
     }
 
     private JPanel createAddressCard(NetworkAddress address) {
         JPanel card = new JPanel(new BorderLayout(15, 10));
         card.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(PRIMARY_ORANGE, 2),
+                BorderFactory.createLineBorder(Theme.PRIMARY_ORANGE, 2),
                 new EmptyBorder(15, 15, 15, 15)));
-        card.setBackground(CARD_BACKGROUND);
+        card.setBackground(Theme.CARD_BACKGROUND);
         card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 110));
 
-        JLabel typeLabel = createTypeLabel(address.getType());
-        JLabel dnsLabel = createDnsLabel(address.getDns());
-        JButton openButton = createOpenButton(address.getUrl());
-
         JPanel infoPanel = new JPanel(new BorderLayout(5, 5));
-        infoPanel.setBackground(CARD_BACKGROUND);
+        infoPanel.setBackground(Theme.CARD_BACKGROUND);
+
+        JLabel typeLabel = new JLabel(address.getType().toUpperCase());
+        typeLabel.setFont(Theme.FONT_TYPE);
+        typeLabel.setForeground(Theme.TEXT_SECONDARY);
+        typeLabel.setBorder(new EmptyBorder(0, 0, 8, 0));
+
+        JLabel dnsLabel = new JLabel(address.getDns());
+        dnsLabel.setFont(Theme.FONT_DNS);
+        dnsLabel.setForeground(Theme.PRIMARY_RED);
+
         infoPanel.add(typeLabel, BorderLayout.NORTH);
         infoPanel.add(dnsLabel, BorderLayout.CENTER);
 
         card.add(infoPanel, BorderLayout.CENTER);
-        card.add(openButton, BorderLayout.EAST);
+        card.add(createOpenButton(address.getUrl()), BorderLayout.EAST);
 
         return card;
     }
 
-    private JLabel createTypeLabel(String type) {
-        JLabel label = new JLabel(type.toUpperCase());
-        label.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 10));
-        label.setForeground(TEXT_SECONDARY);
-        label.setBorder(new EmptyBorder(0, 0, 8, 0));
-        return label;
-    }
-
-    private JLabel createDnsLabel(String dns) {
-        JLabel label = new JLabel(dns);
-        label.setFont(new Font(Font.MONOSPACED, Font.BOLD, 15));
-        label.setForeground(PRIMARY_RED);
-        return label;
-    }
-
     private JButton createOpenButton(String url) {
-        JButton button = new JButton("🌐 Abrir");
-        button.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 12));
-        button.setBackground(PRIMARY_YELLOW);
-        button.setForeground(PRIMARY_RED);
-        button.setFocusPainted(false);
-        button.setBorderPainted(true);
-        button.setBorder(BorderFactory.createLineBorder(PRIMARY_RED, 2));
-        button.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        JButton button = createStyledButton("🌐 Abrir", Theme.PRIMARY_YELLOW, Theme.PRIMARY_RED);
         button.addActionListener(e -> openInBrowser(url));
-        button.addMouseListener(new java.awt.event.MouseAdapter() {
-            @Override
-            public void mouseEntered(java.awt.event.MouseEvent evt) {
-                button.setBackground(PRIMARY_ORANGE);
-            }
-
-            @Override
-            public void mouseExited(java.awt.event.MouseEvent evt) {
-                button.setBackground(PRIMARY_YELLOW);
-            }
-        });
         return button;
     }
 
-    private JPanel createFooterPanel() {
+    // --- Footer Section ---
+
+    private JPanel createFooter() {
         NetworkAddressCollector.ServerInfo info = addressCollector.getServerInfo();
 
         JPanel mainPanel = new JPanel(new BorderLayout(10, 10));
         mainPanel.setOpaque(false);
 
-        // Painel de informações
         JPanel infoPanel = new JPanel(new GridLayout(3, 2, 8, 8));
         infoPanel.setOpaque(false);
         infoPanel.setBorder(BorderFactory.createTitledBorder(
-                BorderFactory.createLineBorder(PRIMARY_YELLOW, 2),
+                BorderFactory.createLineBorder(Theme.PRIMARY_YELLOW, 2),
                 "⚙️ Informações do Servidor",
                 0, 0,
-                new Font(Font.SANS_SERIF, Font.BOLD, 12),
-                Color.WHITE));
+                Theme.FONT_BADGE,
+                Theme.TEXT_WHITE));
 
         addInfoRow(infoPanel, "Hostname:", info.getHostname());
         addInfoRow(infoPanel, "IP:", info.getIpAddress());
         addInfoRow(infoPanel, "Porta:", String.valueOf(info.getPort()));
 
-        // Painel de botões
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 5));
         buttonPanel.setOpaque(false);
 
-        JButton minimizeButton = createMinimizeButton();
+        JButton minimizeButton = createStyledButton("📥 Minimizar para Bandeja", Theme.PRIMARY_YELLOW,
+                Theme.PRIMARY_RED);
+        minimizeButton.addActionListener(e -> minimizeToTray());
         buttonPanel.add(minimizeButton);
 
         mainPanel.add(infoPanel, BorderLayout.CENTER);
@@ -378,131 +352,79 @@ public class StatusWindow {
         return mainPanel;
     }
 
-    private JButton createMinimizeButton() {
-        JButton button = new JButton("📥 Minimizar para Bandeja");
-        button.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 12));
-        button.setBackground(PRIMARY_YELLOW);
-        button.setForeground(PRIMARY_RED);
-        button.setFocusPainted(false);
-        button.setBorderPainted(true);
-        button.setBorder(BorderFactory.createLineBorder(PRIMARY_RED, 2));
-        button.setCursor(new Cursor(Cursor.HAND_CURSOR));
-        button.addActionListener(e -> minimizeToTray());
-        button.addMouseListener(new java.awt.event.MouseAdapter() {
-            @Override
-            public void mouseEntered(java.awt.event.MouseEvent evt) {
-                button.setBackground(PRIMARY_ORANGE);
-            }
-
-            @Override
-            public void mouseExited(java.awt.event.MouseEvent evt) {
-                button.setBackground(PRIMARY_YELLOW);
-            }
-        });
-        return button;
-    }
-
     private void addInfoRow(JPanel panel, String label, String value) {
         JLabel labelComponent = new JLabel(label);
-        labelComponent.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 11));
-        labelComponent.setForeground(PRIMARY_YELLOW);
+        labelComponent.setFont(Theme.FONT_LABEL);
+        labelComponent.setForeground(Theme.PRIMARY_YELLOW);
 
         JLabel valueComponent = new JLabel(value);
-        valueComponent.setFont(new Font(Font.MONOSPACED, Font.BOLD, 11));
-        valueComponent.setForeground(Color.WHITE);
+        valueComponent.setFont(Theme.FONT_VALUE);
+        valueComponent.setForeground(Theme.TEXT_WHITE);
 
         panel.add(labelComponent);
         panel.add(valueComponent);
     }
 
-    private void openInBrowser(String url) {
-        try {
-            if (isDesktopBrowseSupported()) {
-                Desktop.getDesktop().browse(new URI(url));
-            } else {
-                openInBrowserFallback(url);
+    // --- UI Helpers ---
+
+    private JButton createStyledButton(String text, Color bg, Color fg) {
+        JButton button = new JButton(text);
+        button.setFont(Theme.FONT_BUTTON);
+        button.setBackground(bg);
+        button.setForeground(fg);
+        button.setFocusPainted(false);
+        button.setBorderPainted(true);
+        button.setBorder(BorderFactory.createLineBorder(fg, 2));
+        button.setCursor(new Cursor(Cursor.HAND_CURSOR));
+
+        button.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseEntered(MouseEvent evt) {
+                button.setBackground(Theme.PRIMARY_ORANGE);
             }
-        } catch (URISyntaxException e) {
-            String errorMessage = String.format("URL inválida: %s. Erro: %s", url, e.getMessage());
-            logger.error(errorMessage, e);
-            showError("URL inválida: " + url + "\nErro: " + e.getMessage());
-        } catch (IOException e) {
-            String errorMessage = String.format("Erro de I/O ao abrir navegador para URL: %s. Erro: %s", url,
-                    e.getMessage());
-            logger.error(errorMessage, e);
-            showError(ERROR_ABRIR_NAVEGADOR + e.getMessage() + URL_LABEL + url);
-        } catch (Exception e) {
-            String errorMessage = String.format("Erro inesperado ao abrir navegador para URL: %s. Tipo: %s, Erro: %s",
-                    url, e.getClass().getSimpleName(), e.getMessage());
-            logger.error(errorMessage, e);
-            showError(ERROR_ABRIR_NAVEGADOR + e.getMessage() + URL_LABEL + url);
+
+            @Override
+            public void mouseExited(MouseEvent evt) {
+                button.setBackground(bg);
+            }
+        });
+
+        return button;
+    }
+
+    private static class GradientPanel extends JPanel {
+        @Override
+        protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+            Graphics2D g2d = (Graphics2D) g.create();
+            int width = getWidth();
+            int height = getHeight();
+            GradientPaint gradient = new GradientPaint(
+                    0, 0, Theme.PRIMARY_ORANGE,
+                    0, height, Theme.BACKGROUND_DARK);
+            g2d.setPaint(gradient);
+            g2d.fillRect(0, 0, width, height);
+            g2d.dispose();
         }
     }
 
-    private boolean isDesktopBrowseSupported() {
-        return Desktop.isDesktopSupported()
-                && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE);
-    }
-
-    private void openInBrowserFallback(String url) {
-        String os = System.getProperty("os.name").toLowerCase();
-        Runtime runtime = Runtime.getRuntime();
-
-        try {
-            if (os.contains("win")) {
-                runtime.exec("rundll32 url.dll,FileProtocolHandler " + url);
-            } else if (os.contains("mac")) {
-                runtime.exec("open " + url);
-            } else if (os.contains("nix") || os.contains("nux")) {
-                runtime.exec("xdg-open " + url);
-            } else {
-                showWarning(
-                        "Não foi possível abrir o navegador automaticamente.\nPor favor, acesse manualmente: " + url);
-            }
-        } catch (IOException e) {
-            String errorMessage = String.format(
-                    "Erro de I/O ao executar comando para abrir navegador. URL: %s, OS: %s, Erro: %s",
-                    url, os, e.getMessage());
-            logger.error(errorMessage, e);
-            showError(ERROR_ABRIR_NAVEGADOR + e.getMessage() + URL_LABEL + url);
-        } catch (Exception e) {
-            String errorMessage = String.format(
-                    "Erro inesperado ao executar comando para abrir navegador. URL: %s, OS: %s, Tipo: %s, Erro: %s",
-                    url, os, e.getClass().getSimpleName(), e.getMessage());
-            logger.error(errorMessage, e);
-            showError(ERROR_ABRIR_NAVEGADOR + e.getMessage() + URL_LABEL + url);
-        }
-    }
-
-    private void showError(String message) {
-        JOptionPane.showMessageDialog(frame, message, "Erro", JOptionPane.ERROR_MESSAGE);
-    }
-
-    private void showWarning(String message) {
-        JOptionPane.showMessageDialog(frame, message, "Aviso", JOptionPane.WARNING_MESSAGE);
-    }
-
-    private void setWindowIcon() {
-        WindowsIconUtil.applyIconToWindow(frame);
-    }
+    // --- System Tray & Actions ---
 
     private void setupSystemTray() {
         if (!SystemTray.isSupported()) {
-            logger.warn("SystemTray não é suportado neste sistema");
+            logger.warn("SystemTray não é suportado.");
             return;
         }
 
         try {
             systemTray = SystemTray.getSystemTray();
-
-            // Criar ícone para a bandeja usando o utilitário
             Image trayImage = WindowsIconUtil.createTrayIcon();
+
             if (trayImage == null) {
-                // Criar ícone simples se não conseguir carregar
-                trayImage = createDefaultTrayIcon();
+                logger.warn("Ícone da bandeja não pôde ser criado.");
+                return;
             }
 
-            // Criar menu popup para a bandeja
             PopupMenu popup = new PopupMenu();
 
             MenuItem restoreItem = new MenuItem("Restaurar Janela");
@@ -515,54 +437,22 @@ public class StatusWindow {
             exitItem.addActionListener(e -> shutdownApplication());
             popup.add(exitItem);
 
-            // Criar TrayIcon com imagem
-            if (trayImage != null) {
-                trayIcon = new TrayIcon(trayImage, WINDOW_TITLE, popup);
-                // Habilitar auto-size para melhor compatibilidade
-                trayIcon.setImageAutoSize(true);
-                trayIcon.addActionListener(e -> restoreFromTray());
+            trayIcon = new TrayIcon(trayImage, WINDOW_TITLE, popup);
+            trayIcon.setImageAutoSize(true);
+            trayIcon.addActionListener(e -> restoreFromTray());
 
-                // Adicionar à bandeja
-                systemTray.add(trayIcon);
-                int width = trayImage.getWidth(null);
-                int height = trayImage.getHeight(null);
-                logger.info("Ícone da bandeja configurado com sucesso - tamanho: {}x{}",
-                        width > 0 ? width : "desconhecido",
-                        height > 0 ? height : "desconhecido");
-            } else {
-                logger.error("Não foi possível criar ícone da bandeja - imagem é null");
-            }
+            systemTray.add(trayIcon);
+            logger.info("SystemTray configurado com sucesso.");
+
         } catch (AWTException e) {
             logger.error("Erro ao configurar SystemTray", e);
         }
     }
 
-    private Image createDefaultTrayIcon() {
-        // Criar um ícone simples programaticamente como fallback
-        BufferedImage baseImage = new BufferedImage(32, 32, BufferedImage.TYPE_INT_ARGB);
-        Graphics2D g = baseImage.createGraphics();
-        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
-
-        // Desenhar um círculo laranja com emoji de hambúrguer
-        g.setColor(PRIMARY_ORANGE);
-        g.fillOval(0, 0, 32, 32);
-        g.setColor(Color.WHITE);
-        g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 24));
-        g.drawString("🍔", 4, 26);
-
-        g.dispose();
-        return baseImage;
-    }
-
     private void minimizeToTray() {
         if (frame != null && systemTray != null && trayIcon != null) {
             frame.setVisible(false);
-            trayIcon.displayMessage(
-                    WINDOW_TITLE,
-                    "Aplicação minimizada para a bandeja",
-                    TrayIcon.MessageType.INFO);
-            logger.info("Janela minimizada para a bandeja");
+            trayIcon.displayMessage(WINDOW_TITLE, "Aplicação minimizada para a bandeja", TrayIcon.MessageType.INFO);
         }
     }
 
@@ -572,52 +462,34 @@ public class StatusWindow {
             frame.setState(Frame.NORMAL);
             frame.toFront();
             frame.requestFocus();
-            logger.info("Janela restaurada da bandeja");
         }
     }
 
     private void shutdownApplication() {
         logger.info("Encerrando aplicação...");
-
-        // Remover ícone da bandeja
         if (systemTray != null && trayIcon != null) {
             systemTray.remove(trayIcon);
         }
-
-        // Fechar janela
         if (frame != null) {
             frame.dispose();
         }
-
-        // Encerrar aplicação Spring Boot
-        try {
-            if (applicationContext instanceof ConfigurableApplicationContext configurableContext) {
-                configurableContext.close();
-            }
-        } catch (Exception e) {
-            logger.error("Erro ao encerrar aplicação Spring Boot", e);
+        if (applicationContext instanceof ConfigurableApplicationContext configurableContext) {
+            configurableContext.close();
         }
-
-        // Garantir saída completa
         System.exit(0);
     }
 
-    private class GradientPanel extends JPanel {
-        @Override
-        protected void paintComponent(Graphics g) {
-            super.paintComponent(g);
-            Graphics2D g2d = (Graphics2D) g.create();
-
-            int width = getWidth();
-            int height = getHeight();
-
-            GradientPaint gradient = new GradientPaint(
-                    0, 0, PRIMARY_ORANGE,
-                    0, height, BACKGROUND_DARK);
-
-            g2d.setPaint(gradient);
-            g2d.fillRect(0, 0, width, height);
-            g2d.dispose();
+    private void openInBrowser(String url) {
+        try {
+            if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
+                Desktop.getDesktop().browse(new URI(url));
+            } else {
+                Runtime.getRuntime().exec("rundll32 url.dll,FileProtocolHandler " + url);
+            }
+        } catch (Exception e) {
+            logger.error("Erro ao abrir navegador: {}", e.getMessage());
+            JOptionPane.showMessageDialog(frame, "Erro ao abrir navegador: " + e.getMessage(), "Erro",
+                    JOptionPane.ERROR_MESSAGE);
         }
     }
 }

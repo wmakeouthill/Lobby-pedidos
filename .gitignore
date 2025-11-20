@@ -1,57 +1,78 @@
-# IDEs e Editores
+# --- IDEs and Editors ---
 .idea/
 .vscode/
 *.iml
 *.iws
 *.ipr
+.classpath
+.project
+.settings/
+.springBeans
+.sts4-cache
+.factorypath
+*.sublime-workspace
+*.sublime-project
 
-# Build e Distribuição
-dist/
-jre/
-*.exe
-*.jar
-*.war
-
-# Diretórios de build do frontend
-frontend/build/
-frontend/node_modules/
-frontend/node/
-
-# Diretórios de build do backend
-backend/target/
-backend/${project.parent.basedir}/
-
-# Arquivos de sistema
+# --- OS System Files ---
 .DS_Store
 Thumbs.db
 desktop.ini
+ehthumbs.db
 
-# Logs
+# --- Logs ---
+logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+pnpm-debug.log*
 
-# Variáveis de ambiente
+# --- Environment Variables ---
 .env
 .env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env.*.local
+!.env.example
 
-# Arquivos temporários
+# --- Backend (Java/Maven) ---
+target/
+**/target/
+*.class
+*.jar
+*.war
+*.ear
+*.nar
+# Maven Wrapper (keep this!)
+!.mvn/wrapper/maven-wrapper.jar
+
+# Eclipse/STS specific
+.apt_generated
+
+# NetBeans specific
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+
+# --- Frontend (Node/React) ---
+node_modules/
+**/node_modules/
+build/
+**/build/
+dist/
+**/dist/
+coverage/
+.pnp
+.pnp.js
+frontend/node/
+
+# --- Build & Temp ---
 *.tmp
 *.temp
 *.swp
 *.swo
 *~
 
-# Arquivos do Maven
-**/target/
-!.mvn/wrapper/maven-wrapper.jar
-!**/src/main/**/target/
-!**/src/test/**/target/
-
-# Arquivos do Spring Boot
-*.original
-
+# --- Garbage/Generated Directories ---
+backend/${project.parent.basedir}/
+jre/

@@ -29,8 +29,29 @@ public class Launcher {
         // Carregar e aplicar ícone da aplicação antes de iniciar
         // Isso garante que o ícone apareça corretamente na barra de tarefas do Windows
         try {
-            WindowsIconUtil.loadApplicationIcon();
-            System.out.println("Ícone da aplicação carregado com sucesso");
+            java.awt.image.BufferedImage iconImage = WindowsIconUtil.loadApplicationIcon();
+            if (iconImage != null) {
+                System.out.println("Ícone da aplicação carregado com sucesso (" + iconImage.getWidth() + "x" + iconImage.getHeight() + ")");
+
+                // Tentar definir ícone do processo via Taskbar API
+                if (java.awt.Taskbar.isTaskbarSupported()) {
+                    java.awt.Taskbar taskbar = java.awt.Taskbar.getTaskbar();
+                    if (taskbar.isSupported(java.awt.Taskbar.Feature.ICON_IMAGE)) {
+                        taskbar.setIconImage(iconImage);
+                        System.out.println("Ícone definido na barra de tarefas via Taskbar API");
+                    }
+                }
+
+                // Definir propriedade do sistema para ícone
+                java.net.URL iconUrl = Launcher.class.getResource("/icon.ico");
+                if (iconUrl != null) {
+                    System.setProperty("java.awt.application.icon", iconUrl.toString());
+                    System.out.println("Propriedade java.awt.application.icon definida: " + iconUrl);
+                }
+
+            } else {
+                System.err.println("Aviso: Não foi possível carregar ícone da aplicação");
+            }
         } catch (Exception e) {
             System.err.println("Aviso: Não foi possível carregar ícone da aplicação: " + e.getMessage());
             // Continuar mesmo se o ícone não puder ser carregado

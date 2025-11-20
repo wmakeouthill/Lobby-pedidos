@@ -4,9 +4,10 @@
   grid-template-columns: 280px 1fr 1fr;
   gap: 15px;
   overflow: hidden;
-  padding: 10px;
+  padding: 5px;
   position: relative;
   transition: all 1.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  box-sizing: border-box;
 }
 
 .fila-pedidos-container.animando {
@@ -69,7 +70,10 @@
   width: 280px;
   min-width: 280px;
   max-width: 280px;
+  height: calc(100% - 10px);
+  max-height: calc(100vh - 20px);
   transition: all 1.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  box-sizing: border-box;
 }
 
 .coluna-lateral.escondido {
@@ -94,6 +98,8 @@
   pointer-events: none;
   height: 100vh;
   overflow: visible;
+  padding: 20px;
+  box-sizing: border-box;
 }
 
 .fila-pedidos-container.animando .header {
@@ -181,18 +187,19 @@
 
 .fila-pedidos-container.animando .logo-container {
   width: 100%;
-  max-width: 100vw;
-  padding-top: 40px;
-  padding-bottom: 40px;
+  max-width: calc(100vw - 40px);
+  padding-top: 30px;
+  padding-bottom: 30px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 50px;
+  gap: 40px;
   margin: 0;
-  min-height: 100vh;
+  min-height: calc(100vh - 60px);
   position: relative;
   overflow: visible;
+  box-sizing: border-box;
 }
 
 .logo-imagem {
@@ -208,8 +215,8 @@
 
 .logo-imagem.expandido {
   width: auto;
-  max-width: 85vw;
-  max-height: 75vh;
+  max-width: 80vw;
+  max-height: 70vh;
   height: auto;
   z-index: 1000;
   position: relative;
@@ -235,7 +242,7 @@
   left: 0;
   right: 0;
   transform: none;
-  font-size: 3.5rem;
+  font-size: 3.2rem;
   font-weight: 400;
   font-family: "Fredoka One", "Lilita One", "Righteous", cursive;
   color: #dc143c;
@@ -247,21 +254,23 @@
     pulseCaixa 2s ease-in-out infinite;
   white-space: nowrap;
   z-index: 10002;
-  padding: 35px 70px;
-  border-radius: 35px;
+  padding: 30px 60px;
+  border-radius: 30px;
   backdrop-filter: blur(20px);
-  border: 6px solid white;
+  border: 5px solid white;
   margin: 0 auto;
   text-align: center;
   display: block;
   width: fit-content;
+  max-width: calc(100vw - 40px);
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2), 0 0 50px rgba(0, 0, 0, 0.1),
     0 0 70px rgba(0, 0, 0, 0.1), inset 0 0 40px rgba(255, 255, 255, 0.5);
-  letter-spacing: 4px;
+  letter-spacing: 3px;
   isolation: isolate;
   line-height: 1.3;
   transform-origin: center center;
   pointer-events: none;
+  box-sizing: border-box;
 }
 
 /* Cores vermelhas para animação - Clean Code: valores centralizados */
@@ -601,8 +610,10 @@
   flex-direction: column;
   overflow: hidden;
   min-height: 0;
-  height: 100%;
+  height: calc(100% - 10px);
+  max-height: calc(100vh - 20px);
   transition: all 1.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  box-sizing: border-box;
 }
 
 .coluna-fila.saindo {
@@ -1074,8 +1085,8 @@
 
 .fila-pedidos-container.animando .hamburguer-container {
   position: fixed;
-  bottom: 30px;
-  left: 30px;
+  bottom: 20px;
+  left: 20px;
   right: auto;
   width: auto;
   padding: 0;
@@ -1086,6 +1097,8 @@
   transition: transform 1.4s cubic-bezier(0.34, 1.56, 0.64, 1),
     width 1.4s cubic-bezier(0.34, 1.56, 0.64, 1),
     padding 1.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+  max-width: calc(100vw - 40px);
+  max-height: calc(100vh - 40px);
 }
 
 .hamburguer-imagem {
@@ -1107,8 +1120,8 @@
 
 .fila-pedidos-container.animando .hamburguer-imagem {
   width: auto;
-  max-width: 25vw;
-  max-height: 30vh;
+  max-width: 20vw;
+  max-height: 25vh;
   height: auto;
   z-index: 10001;
   position: relative;
@@ -1122,8 +1135,8 @@
 }
 
 .fila-pedidos-container.animando .logo-imagem.expandido {
-  max-width: 45vw;
-  max-height: 50vh;
+  max-width: 40vw;
+  max-height: 45vh;
   width: auto;
   height: auto;
   margin: 0 auto;
@@ -1147,22 +1160,23 @@
   }
 
   .fila-pedidos-container.animando .logo-container {
-    max-width: 95vw;
+    max-width: calc(100vw - 20px);
     padding-top: 0;
     padding-bottom: 0;
-    min-height: 100vh;
+    min-height: calc(100vh - 20px);
   }
 
   .logo-imagem.expandido {
-    max-width: 85vw;
-    max-height: 70vh;
+    max-width: 80vw;
+    max-height: 65vh;
   }
 
   .mensagem-animacao {
-    font-size: 2.8rem;
-    padding: 30px 55px;
-    letter-spacing: 3px;
-    top: calc(100% + 40px);
+    font-size: 2.6rem;
+    padding: 25px 50px;
+    letter-spacing: 2px;
+    top: calc(100% + 30px);
+    max-width: calc(100vw - 20px);
   }
 }
 
@@ -1211,21 +1225,22 @@
   }
 
   .fila-pedidos-container.animando .logo-container {
-    max-width: 98vw;
+    max-width: calc(100vw - 10px);
     padding-top: 0;
     padding-bottom: 0;
-    min-height: 100vh;
+    min-height: calc(100vh - 10px);
   }
 
   .logo-imagem.expandido {
-    max-width: 90vw;
-    max-height: 65vh;
+    max-width: 85vw;
+    max-height: 60vh;
   }
 
   .mensagem-animacao {
-    font-size: 2.2rem;
-    padding: 25px 45px;
-    top: calc(100% + 30px);
-    letter-spacing: 2.5px;
+    font-size: 2.0rem;
+    padding: 20px 35px;
+    top: calc(100% + 20px);
+    letter-spacing: 2px;
+    max-width: calc(100vw - 10px);
   }
 }

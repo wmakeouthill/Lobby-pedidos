@@ -10,4 +10,8 @@ Spring-Boot-Classes: BOOT-INF/classes/
 Spring-Boot-Lib: BOOT-INF/lib/
 Spring-Boot-Classpath-Index: BOOT-INF/classpath.idx
 Spring-Boot-Layers-Index: BOOT-INF/layers.idx
+Application-Name: Lobby Pedidos
+Permissions: all-permissions
+JavaFX-Application-Class: com.experimentaai.lobby.Launcher
+JavaFX-Class-Path: lobby-pedidos-1.0.0.jar
 

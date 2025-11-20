@@ -51,6 +51,14 @@ public class WindowsIconUtil {
                     icoUrl = contextLoader.getResource("icon.ico");
                 }
             }
+            // Tentar caminho específico para JAR executável
+            if (icoUrl == null) {
+                try {
+                    icoUrl = WindowsIconUtil.class.getClassLoader().getResource("BOOT-INF/classes/icon.ico");
+                } catch (Exception e) {
+                    logger.debug("Erro ao tentar caminho BOOT-INF: {}", e.getMessage());
+                }
+            }
         } catch (Exception e) {
             logger.debug("Erro ao buscar resource /icon.ico: {}", e.getMessage());
         }
@@ -66,7 +74,16 @@ public class WindowsIconUtil {
                 logger.warn("Falha ao carregar ícone de resource: {}", icoUrl);
             }
         } else {
-            logger.info("Ícone não encontrado em /icon.ico (resources) - tentando métodos alternativos");
+            logger.warn("Ícone não encontrado em /icon.ico (resources) - tentando métodos alternativos");
+            // Debug: listar todos os resources disponíveis na raiz
+            try {
+                java.util.Enumeration<java.net.URL> resources = WindowsIconUtil.class.getClassLoader().getResources("");
+                while (resources.hasMoreElements()) {
+                    logger.debug("Resource path encontrado: {}", resources.nextElement());
+                }
+            } catch (Exception e) {
+                logger.debug("Erro ao listar resources: {}", e.getMessage());
+            }
         }
 
         // Método 2: Tentar carregar icon.png dos resources como fallback
@@ -104,7 +121,26 @@ public class WindowsIconUtil {
             }
         }
 
-        // Método 4: Tentar carregar do diretório de resources usando caminho absoluto
+        // Método 4: Tentar carregar diretamente do classpath do Spring Boot
+        if (iconImage == null) {
+            try {
+                // Quando executando como JAR, os recursos ficam em BOOT-INF/classes/
+                URL bootInfUrl = WindowsIconUtil.class.getClassLoader().getResource("BOOT-INF/classes/icon.ico");
+                if (bootInfUrl != null) {
+                    logger.info("Tentando carregar ícone do BOOT-INF/classes: {}", bootInfUrl);
+                    iconImage = loadIconFromUrl(bootInfUrl);
+                    if (iconImage != null) {
+                        iconSource = "BOOT-INF/classes/icon.ico";
+                        logger.info("Ícone carregado de: {} ({}x{})", iconSource,
+                                iconImage.getWidth(), iconImage.getHeight());
+                    }
+                }
+            } catch (Exception e) {
+                logger.debug("Erro ao tentar carregar ícone do BOOT-INF: {}", e.getMessage());
+            }
+        }
+
+        // Método 5: Tentar carregar do diretório de resources usando caminho absoluto
         // Isso é especialmente útil quando rodando de uma IDE
         if (iconImage == null) {
             try {
@@ -218,7 +254,7 @@ public class WindowsIconUtil {
     /**
      * Define o ícone do processo no Windows usando APIs nativas.
      * Isso garante que o ícone apareça na barra de tarefas.
-     * 
+     *
      * Nota: Quando rodando de uma IDE (como IntelliJ), o ícone na barra de tarefas
      * pode não aparecer porque o Windows usa o ícone do executável (java.exe ou
      * javaw.exe).
@@ -264,12 +300,29 @@ public class WindowsIconUtil {
         // Isso funciona para algumas versões do Windows, mas é limitado
         try {
             URL iconUrl = WindowsIconUtil.class.getResource("/icon.ico");
+            if (iconUrl == null) {
+                // Tentar outros caminhos
+                iconUrl = WindowsIconUtil.class.getClassLoader().getResource("BOOT-INF/classes/icon.ico");
+            }
             if (iconUrl != null) {
                 System.setProperty("java.awt.application.icon", iconUrl.toString());
-                logger.debug("Propriedade java.awt.application.icon definida");
+                logger.debug("Propriedade java.awt.application.icon definida: {}", iconUrl);
+            } else {
+                logger.debug("URL do ícone não encontrada para propriedade do sistema");
             }
         } catch (Exception e) {
             logger.debug("Não foi possível definir ícone via propriedade do sistema: {}", e.getMessage());
+        }
+
+        // Tentar definir ícone via reflection (último recurso)
+        try {
+            Class<?> toolkitClass = Toolkit.getDefaultToolkit().getClass();
+            java.lang.reflect.Field awtAppClassNameField = toolkitClass.getDeclaredField("awtAppClassName");
+            awtAppClassNameField.setAccessible(true);
+            awtAppClassNameField.set(null, "Lobby Pedidos");
+            logger.debug("Nome da aplicação definido via reflection");
+        } catch (Exception e) {
+            logger.debug("Não foi possível definir nome da aplicação via reflection: {}", e.getMessage());
         }
 
         if (runningFromIDE) {
@@ -316,23 +369,22 @@ public class WindowsIconUtil {
 
         logger.debug("Tentando carregar ícone da URL: {}", url);
 
-        // Tentar carregar ICO usando Toolkit (funciona bem no Windows)
+        // Primeiro tentar ImageIcon (mais confiável para ICO)
         try {
-            Image toolkitImage = Toolkit.getDefaultToolkit().getImage(url);
-            if (toolkitImage != null) {
-                BufferedImage buffered = waitForImageAndConvert(toolkitImage);
-                if (buffered != null && buffered.getWidth() > 0 && buffered.getHeight() > 0) {
-                    logger.debug("Ícone carregado com sucesso via Toolkit: {}x{}",
-                            buffered.getWidth(), buffered.getHeight());
-                    return buffered;
-                } else {
-                    logger.debug("Toolkit retornou imagem inválida (dimensões: {}x{})",
-                            buffered != null ? buffered.getWidth() : 0,
-                            buffered != null ? buffered.getHeight() : 0);
+            ImageIcon icon = new ImageIcon(url);
+            if (icon.getIconWidth() > 0 && icon.getIconHeight() > 0) {
+                BufferedImage result = imageToBufferedImage(icon.getImage());
+                if (result != null && result.getWidth() > 0 && result.getHeight() > 0) {
+                    logger.debug("Ícone carregado com sucesso via ImageIcon: {}x{}",
+                            result.getWidth(), result.getHeight());
+                    return result;
                 }
+            } else {
+                logger.debug("ImageIcon retornou dimensões inválidas: {}x{}",
+                        icon.getIconWidth(), icon.getIconHeight());
             }
         } catch (Exception e) {
-            logger.debug("Erro ao carregar ícone de URL via Toolkit: {}", e.getMessage());
+            logger.debug("Erro ao carregar ícone de URL via ImageIcon: {}", e.getMessage());
         }
 
         // Fallback: tentar ImageIO
@@ -349,22 +401,23 @@ public class WindowsIconUtil {
             logger.debug("Erro ao carregar ícone de URL via ImageIO: {}", e.getMessage());
         }
 
-        // Último fallback: ImageIcon
+        // Último fallback: Toolkit
         try {
-            ImageIcon icon = new ImageIcon(url);
-            if (icon.getIconWidth() > 0 && icon.getIconHeight() > 0) {
-                BufferedImage result = imageToBufferedImage(icon.getImage());
-                if (result != null) {
-                    logger.debug("Ícone carregado com sucesso via ImageIcon: {}x{}",
-                            result.getWidth(), result.getHeight());
-                    return result;
+            Image toolkitImage = Toolkit.getDefaultToolkit().getImage(url);
+            if (toolkitImage != null) {
+                BufferedImage buffered = waitForImageAndConvert(toolkitImage);
+                if (buffered != null && buffered.getWidth() > 0 && buffered.getHeight() > 0) {
+                    logger.debug("Ícone carregado com sucesso via Toolkit: {}x{}",
+                            buffered.getWidth(), buffered.getHeight());
+                    return buffered;
+                } else {
+                    logger.debug("Toolkit retornou imagem inválida (dimensões: {}x{})",
+                            buffered != null ? buffered.getWidth() : 0,
+                            buffered != null ? buffered.getHeight() : 0);
                 }
-            } else {
-                logger.debug("ImageIcon retornou dimensões inválidas: {}x{}",
-                        icon.getIconWidth(), icon.getIconHeight());
             }
         } catch (Exception e) {
-            logger.debug("Erro ao carregar ícone de URL via ImageIcon: {}", e.getMessage());
+            logger.debug("Erro ao carregar ícone de URL via Toolkit: {}", e.getMessage());
         }
 
         logger.debug("Todos os métodos de carregamento falharam para URL: {}", url);
@@ -386,7 +439,27 @@ public class WindowsIconUtil {
         logger.debug("Carregando ícone de arquivo: {} (tamanho: {} bytes)",
                 file.getAbsolutePath(), file.length());
 
-        // Tentar ImageIO primeiro (funciona bem com ICO no Windows)
+        // Primeiro tentar ImageIcon (mais confiável para ICO)
+        try {
+            ImageIcon icon = new ImageIcon(file.getAbsolutePath());
+            if (icon.getIconWidth() > 0 && icon.getIconHeight() > 0) {
+                BufferedImage result = imageToBufferedImage(icon.getImage());
+                if (result != null && result.getWidth() > 0 && result.getHeight() > 0) {
+                    logger.debug("Ícone carregado via ImageIcon: {}x{}",
+                            result.getWidth(), result.getHeight());
+                    return result;
+                } else {
+                    logger.debug("ImageIcon retornou imagem inválida");
+                }
+            } else {
+                logger.debug("ImageIcon retornou dimensões inválidas: {}x{}",
+                        icon.getIconWidth(), icon.getIconHeight());
+            }
+        } catch (Exception e) {
+            logger.debug("Erro ao carregar ícone de arquivo via ImageIcon: {}", e.getMessage());
+        }
+
+        // Fallback: ImageIO
         try {
             BufferedImage image = javax.imageio.ImageIO.read(file);
             if (image != null && image.getWidth() > 0 && image.getHeight() > 0) {
@@ -399,7 +472,7 @@ public class WindowsIconUtil {
             logger.debug("Erro ao carregar ícone de arquivo via ImageIO: {}", e.getMessage());
         }
 
-        // Fallback: Toolkit (melhor para arquivos .ico no Windows)
+        // Último fallback: Toolkit
         try {
             Image toolkitImage = Toolkit.getDefaultToolkit().getImage(file.getAbsolutePath());
             if (toolkitImage != null) {
@@ -414,21 +487,6 @@ public class WindowsIconUtil {
             }
         } catch (Exception e) {
             logger.debug("Erro ao carregar ícone de arquivo via Toolkit: {}", e.getMessage());
-        }
-
-        // Último fallback: ImageIcon
-        try {
-            ImageIcon icon = new ImageIcon(file.getAbsolutePath());
-            if (icon.getIconWidth() > 0 && icon.getIconHeight() > 0) {
-                BufferedImage result = imageToBufferedImage(icon.getImage());
-                if (result != null) {
-                    logger.debug("Ícone carregado via ImageIcon: {}x{}",
-                            result.getWidth(), result.getHeight());
-                    return result;
-                }
-            }
-        } catch (Exception e) {
-            logger.debug("Erro ao carregar ícone de arquivo via ImageIcon: {}", e.getMessage());
         }
 
         logger.debug("Todos os métodos falharam ao carregar ícone de: {}", file.getAbsolutePath());
