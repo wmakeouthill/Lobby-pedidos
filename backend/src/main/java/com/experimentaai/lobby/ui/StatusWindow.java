@@ -4,6 +4,8 @@ import com.experimentaai.lobby.exception.StatusWindowException;
 import com.experimentaai.lobby.service.NetworkAddressCollector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationContext;
+import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.stereotype.Component;
 
 import javax.swing.*;
@@ -35,11 +37,15 @@ public class StatusWindow {
     private static final Color TEXT_SECONDARY = new Color(100, 100, 100);
 
     private final NetworkAddressCollector addressCollector;
+    private final ApplicationContext applicationContext;
     private JFrame frame;
     private volatile boolean windowShown = false;
+    private SystemTray systemTray;
+    private TrayIcon trayIcon;
 
-    public StatusWindow(NetworkAddressCollector addressCollector) {
+    public StatusWindow(NetworkAddressCollector addressCollector, ApplicationContext applicationContext) {
         this.addressCollector = addressCollector;
+        this.applicationContext = applicationContext;
     }
 
     @SuppressWarnings("java:S2139")
@@ -77,13 +83,22 @@ public class StatusWindow {
         }
 
         try {
-            SwingUtilities.invokeAndWait(this::createWindow);
-
-            SwingUtilities.invokeLater(() -> {
+            // Verificar se já estamos na EDT
+            if (SwingUtilities.isEventDispatchThread()) {
+                // Já estamos na EDT, criar janela diretamente
+                createWindow();
                 frame.setVisible(true);
                 frame.toFront();
                 frame.requestFocus();
-            });
+            } else {
+                // Não estamos na EDT, usar invokeAndWait para garantir execução síncrona
+                SwingUtilities.invokeAndWait(() -> {
+                    createWindow();
+                    frame.setVisible(true);
+                    frame.toFront();
+                    frame.requestFocus();
+                });
+            }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             String errorMessage = String.format("Thread interrompida durante criação da janela de status. Thread: %s",
@@ -133,7 +148,7 @@ public class StatusWindow {
 
     private void createWindow() {
         frame = new JFrame(WINDOW_TITLE);
-        frame.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
+        frame.setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
         frame.setResizable(true);
         frame.setSize(WINDOW_WIDTH, WINDOW_HEIGHT);
         frame.setLocationRelativeTo(null);
@@ -142,19 +157,20 @@ public class StatusWindow {
         // Adicionar ícone à janela
         setWindowIcon();
 
+        // Configurar SystemTray
+        setupSystemTray();
+
         frame.addWindowListener(new java.awt.event.WindowAdapter() {
             @Override
             public void windowClosing(java.awt.event.WindowEvent windowEvent) {
                 int option = JOptionPane.showConfirmDialog(
                         frame,
-                        "Deseja realmente fechar a janela?\nO servidor continuará rodando.",
+                        "Deseja realmente fechar a aplicação?",
                         "Confirmar Fechamento",
                         JOptionPane.YES_NO_OPTION,
                         JOptionPane.QUESTION_MESSAGE);
                 if (option == JOptionPane.YES_OPTION) {
-                    frame.setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE);
-                } else {
-                    frame.setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
+                    shutdownApplication();
                 }
             }
         });
@@ -331,20 +347,58 @@ public class StatusWindow {
     private JPanel createFooterPanel() {
         NetworkAddressCollector.ServerInfo info = addressCollector.getServerInfo();
 
-        JPanel panel = new JPanel(new GridLayout(3, 2, 8, 8));
-        panel.setOpaque(false);
-        panel.setBorder(BorderFactory.createTitledBorder(
+        JPanel mainPanel = new JPanel(new BorderLayout(10, 10));
+        mainPanel.setOpaque(false);
+
+        // Painel de informações
+        JPanel infoPanel = new JPanel(new GridLayout(3, 2, 8, 8));
+        infoPanel.setOpaque(false);
+        infoPanel.setBorder(BorderFactory.createTitledBorder(
                 BorderFactory.createLineBorder(PRIMARY_YELLOW, 2),
                 "⚙️ Informações do Servidor",
                 0, 0,
                 new Font(Font.SANS_SERIF, Font.BOLD, 12),
                 Color.WHITE));
 
-        addInfoRow(panel, "Hostname:", info.getHostname());
-        addInfoRow(panel, "IP:", info.getIpAddress());
-        addInfoRow(panel, "Porta:", String.valueOf(info.getPort()));
+        addInfoRow(infoPanel, "Hostname:", info.getHostname());
+        addInfoRow(infoPanel, "IP:", info.getIpAddress());
+        addInfoRow(infoPanel, "Porta:", String.valueOf(info.getPort()));
 
-        return panel;
+        // Painel de botões
+        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 5));
+        buttonPanel.setOpaque(false);
+        
+        JButton minimizeButton = createMinimizeButton();
+        buttonPanel.add(minimizeButton);
+
+        mainPanel.add(infoPanel, BorderLayout.CENTER);
+        mainPanel.add(buttonPanel, BorderLayout.SOUTH);
+
+        return mainPanel;
+    }
+
+    private JButton createMinimizeButton() {
+        JButton button = new JButton("📥 Minimizar para Bandeja");
+        button.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 12));
+        button.setBackground(PRIMARY_YELLOW);
+        button.setForeground(PRIMARY_RED);
+        button.setFocusPainted(false);
+        button.setBorderPainted(true);
+        button.setBorder(BorderFactory.createLineBorder(PRIMARY_RED, 2));
+        button.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        button.addActionListener(e -> minimizeToTray());
+        button.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseEntered(java.awt.event.MouseEvent evt) {
+                button.setBackground(PRIMARY_ORANGE);
+            }
+
+            @Override
+            public void mouseExited(java.awt.event.MouseEvent evt) {
+                button.setBackground(PRIMARY_YELLOW);
+            }
+        });
+        return button;
     }
 
     private void addInfoRow(JPanel panel, String label, String value) {
@@ -429,53 +483,215 @@ public class StatusWindow {
 
     private void setWindowIcon() {
         try {
-            // Tentar carregar ícone do resources
-            java.net.URL iconUrl = getClass().getResource("/icon.png");
+            // Tentar carregar ícone dos resources (múltiplos formatos e localizações)
+            java.net.URL iconUrl = null;
+            Image iconImage = null;
+            
+            // Método 1: Tentar carregar icon.ico dos resources
+            iconUrl = getClass().getResource("/icon.ico");
             if (iconUrl != null) {
-                ImageIcon icon = new ImageIcon(iconUrl);
-                frame.setIconImage(icon.getImage());
-                logger.debug("Ícone carregado do arquivo icon.png");
-                return;
+                try {
+                    // Usar Toolkit para carregar ICO (melhor suporte)
+                    iconImage = Toolkit.getDefaultToolkit().getImage(iconUrl);
+                    logger.debug("Ícone carregado de /icon.ico via Toolkit");
+                } catch (Exception e) {
+                    logger.debug("Erro ao carregar icon.ico via Toolkit", e);
+                }
+            }
+            
+            // Método 2: Tentar icon.png como fallback
+            if (iconImage == null) {
+                iconUrl = getClass().getResource("/icon.png");
+                if (iconUrl != null) {
+                    try {
+                        iconImage = new ImageIcon(iconUrl).getImage();
+                        logger.debug("Ícone carregado de /icon.png");
+                    } catch (Exception e) {
+                        logger.debug("Erro ao carregar icon.png", e);
+                    }
+                }
+            }
+            
+            // Método 3: Tentar carregar do caminho relativo ao executável
+            if (iconImage == null) {
+                try {
+                    java.io.File iconFile = null;
+                    // Tentar vários caminhos possíveis
+                    String[] possiblePaths = {
+                        "../icon/icon.ico",
+                        "icon/icon.ico",
+                        "../../icon/icon.ico",
+                        System.getProperty("user.dir") + "/icon/icon.ico"
+                    };
+                    
+                    for (String path : possiblePaths) {
+                        iconFile = new java.io.File(path);
+                        if (iconFile.exists() && iconFile.isFile()) {
+                            iconImage = Toolkit.getDefaultToolkit().getImage(iconFile.getAbsolutePath());
+                            logger.debug("Ícone carregado de: " + iconFile.getAbsolutePath());
+                            break;
+                        }
+                    }
+                } catch (Exception e) {
+                    logger.debug("Erro ao carregar ícone de caminho relativo", e);
+                }
+            }
+            
+            // Se encontrou o ícone, aplicá-lo
+            if (iconImage != null) {
+                try {
+                    // Criar múltiplos tamanhos para melhor compatibilidade
+                    java.util.List<Image> iconImages = new java.util.ArrayList<>();
+                    
+                    // Adicionar a imagem em diferentes tamanhos
+                    for (int size : new int[] { 16, 32, 48, 64, 128, 256 }) {
+                        Image scaledImage = iconImage.getScaledInstance(size, size, Image.SCALE_SMOOTH);
+                        iconImages.add(scaledImage);
+                    }
+                    
+                    // Adicionar também a imagem original
+                    iconImages.add(iconImage);
+                    
+                    frame.setIconImages(iconImages);
+                    logger.debug("Ícone aplicado à janela com sucesso");
+                    return;
+                } catch (Exception e) {
+                    logger.warn("Erro ao aplicar ícone à janela", e);
+                }
             }
 
-            // Fallback: criar ícone programaticamente
-            // Criar múltiplos tamanhos para melhor compatibilidade
-            java.util.List<Image> iconImages = new java.util.ArrayList<>();
-
-            for (int size : new int[] { 16, 32, 48, 64 }) {
-                BufferedImage iconImage = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
-                Graphics2D g2d = iconImage.createGraphics();
-                g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g2d.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
-
-                // Fundo arredondado laranja
-                int margin = size / 8;
-                g2d.setColor(PRIMARY_ORANGE);
-                g2d.fillRoundRect(margin, margin, size - 2 * margin, size - 2 * margin, size / 4, size / 4);
-
-                // Borda vermelha
-                g2d.setColor(PRIMARY_RED);
-                g2d.setStroke(new BasicStroke(Math.max(1, size / 16)));
-                g2d.drawRoundRect(margin, margin, size - 2 * margin, size - 2 * margin, size / 4, size / 4);
-
-                // Texto "L" no centro
-                g2d.setColor(Color.WHITE);
-                g2d.setFont(new Font(Font.SANS_SERIF, Font.BOLD, size * 3 / 4));
-                FontMetrics fm = g2d.getFontMetrics();
-                String text = "L";
-                int x = (size - fm.stringWidth(text)) / 2;
-                int y = (size - fm.getHeight()) / 2 + fm.getAscent();
-                g2d.drawString(text, x, y);
-
-                g2d.dispose();
-                iconImages.add(iconImage);
-            }
-
-            frame.setIconImages(iconImages);
-            logger.debug("Ícone padrão criado programaticamente");
+            // Último fallback: usar ícone padrão do sistema (não criar "L")
+            logger.warn("Ícone customizado não encontrado, usando ícone padrão do sistema");
+            // Não criar ícone programático - deixar o Windows usar o ícone do executável
+            
         } catch (Exception e) {
             logger.warn("Não foi possível definir ícone da janela", e);
         }
+    }
+
+    private void setupSystemTray() {
+        if (!SystemTray.isSupported()) {
+            logger.warn("SystemTray não é suportado neste sistema");
+            return;
+        }
+
+        try {
+            systemTray = SystemTray.getSystemTray();
+            
+            // Criar ícone para a bandeja
+            Image trayImage = createTrayIconImage();
+            if (trayImage == null) {
+                // Criar ícone simples se não conseguir carregar
+                trayImage = createDefaultTrayIcon();
+            }
+
+            // Criar menu popup para a bandeja
+            PopupMenu popup = new PopupMenu();
+            
+            MenuItem restoreItem = new MenuItem("Restaurar Janela");
+            restoreItem.addActionListener(e -> restoreFromTray());
+            popup.add(restoreItem);
+            
+            popup.addSeparator();
+            
+            MenuItem exitItem = new MenuItem("Sair");
+            exitItem.addActionListener(e -> shutdownApplication());
+            popup.add(exitItem);
+
+            // Criar TrayIcon
+            trayIcon = new TrayIcon(trayImage, WINDOW_TITLE, popup);
+            trayIcon.setImageAutoSize(true);
+            trayIcon.addActionListener(e -> restoreFromTray());
+
+            // Adicionar à bandeja
+            systemTray.add(trayIcon);
+            logger.info("Ícone da bandeja configurado com sucesso");
+        } catch (AWTException e) {
+            logger.error("Erro ao configurar SystemTray", e);
+        }
+    }
+
+    private Image createTrayIconImage() {
+        try {
+            // Tentar carregar o ícone dos resources
+            java.net.URL iconUrl = getClass().getResource("/icon.ico");
+            if (iconUrl != null) {
+                return Toolkit.getDefaultToolkit().getImage(iconUrl);
+            }
+            
+            iconUrl = getClass().getResource("/icon.png");
+            if (iconUrl != null) {
+                return new ImageIcon(iconUrl).getImage();
+            }
+        } catch (Exception e) {
+            logger.debug("Erro ao carregar ícone para bandeja", e);
+        }
+        return null;
+    }
+
+    private Image createDefaultTrayIcon() {
+        // Criar um ícone simples programaticamente
+        BufferedImage image = new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = image.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        
+        // Desenhar um círculo laranja com emoji de hambúrguer
+        g.setColor(PRIMARY_ORANGE);
+        g.fillOval(0, 0, 16, 16);
+        g.setColor(Color.WHITE);
+        g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 12));
+        g.drawString("🍔", 2, 13);
+        
+        g.dispose();
+        return image;
+    }
+
+    private void minimizeToTray() {
+        if (frame != null && systemTray != null && trayIcon != null) {
+            frame.setVisible(false);
+            trayIcon.displayMessage(
+                WINDOW_TITLE,
+                "Aplicação minimizada para a bandeja",
+                TrayIcon.MessageType.INFO
+            );
+            logger.info("Janela minimizada para a bandeja");
+        }
+    }
+
+    private void restoreFromTray() {
+        if (frame != null) {
+            frame.setVisible(true);
+            frame.setState(Frame.NORMAL);
+            frame.toFront();
+            frame.requestFocus();
+            logger.info("Janela restaurada da bandeja");
+        }
+    }
+
+    private void shutdownApplication() {
+        logger.info("Encerrando aplicação...");
+        
+        // Remover ícone da bandeja
+        if (systemTray != null && trayIcon != null) {
+            systemTray.remove(trayIcon);
+        }
+        
+        // Fechar janela
+        if (frame != null) {
+            frame.dispose();
+        }
+        
+        // Encerrar aplicação Spring Boot
+        try {
+            if (applicationContext instanceof ConfigurableApplicationContext) {
+                ((ConfigurableApplicationContext) applicationContext).close();
+            }
+        } catch (Exception e) {
+            logger.error("Erro ao encerrar aplicação Spring Boot", e);
+        }
+        
+        // Garantir saída completa
+        System.exit(0);
     }
 
     private class GradientPanel extends JPanel {

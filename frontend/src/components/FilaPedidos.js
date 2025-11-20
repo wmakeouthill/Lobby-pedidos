@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useLayoutEffect } from 'react';
+import React, { useState, useEffect, useRef, useLayoutEffect, useCallback } from 'react';
 import './FilaPedidos.css';
 import pedidoService from '../services/pedidoService';
 
@@ -60,6 +60,196 @@ const FilaPedidos = ({ modo, onTrocarModo }) => {
     carregarConfiguracoes();
   }, []);
 
+  // Detectar se algum pedido mudou de PREPARANDO para PRONTO
+  const detectarMudancaStatus = (pedidosAnteriores, pedidosAtuais) => {
+    // Verificar mudanças de status em pedidos existentes
+    for (const pedidoAtual of pedidosAtuais) {
+      const pedidoAnterior = pedidosAnteriores.find(p => p.id === pedidoAtual.id);
+      if (pedidoAnterior && 
+          pedidoAnterior.status === 'PREPARANDO' && 
+          pedidoAtual.status === 'PRONTO') {
+        return pedidoAtual;
+      }
+    }
+    
+    // Verificar se algum pedido novo foi adicionado diretamente como PRONTO
+    // (caso raro, mas pode acontecer)
+    for (const pedidoAtual of pedidosAtuais) {
+      const pedidoAnterior = pedidosAnteriores.find(p => p.id === pedidoAtual.id);
+      if (!pedidoAnterior && pedidoAtual.status === 'PRONTO') {
+        // Não animar pedidos novos, apenas mudanças de status
+        continue;
+      }
+    }
+    
+    return null;
+  };
+
+  // Animar transição de status
+  const animarTransicaoStatus = (pedido, pedidoAnterior) => {
+    setPedidoAnimando(pedido.id);
+    setPedidoAnimandoStatus('PREPARANDO'); // Começar na lista de preparando
+    // Guardar uma cópia do pedido com status antigo para mostrar na lista de preparando
+    setPedidoAnimandoDados({ ...pedidoAnterior, status: 'PREPARANDO' });
+    
+    // Após metade da animação, mudar para a lista de pronto
+    setTimeout(() => {
+      setPedidoAnimandoStatus('PRONTO');
+      setPedidoAnimandoDados({ ...pedido, status: 'PRONTO' });
+    }, 500);
+    
+    // Remover animação após a animação completar (1 segundo)
+    setTimeout(() => {
+      setPedidoAnimando(null);
+      setPedidoAnimandoStatus(null);
+      setPedidoAnimandoDados(null);
+    }, 1000);
+  };
+
+  const carregarPedidos = useCallback(async () => {
+    try {
+      // JSON é a FONTE DE VERDADE - sempre verificar o cache primeiro
+      const cacheAtual = await pedidoService.carregarCache();
+      
+      // Se houver cache, usar como fonte de verdade (NUNCA chamar banco)
+      if (cacheAtual && Array.isArray(cacheAtual) && cacheAtual.length > 0) {
+        // Verificar se houve mudanças comparando com o estado atual
+        const pedidosAtuaisStr = JSON.stringify([...pedidos].sort((a, b) => a.id - b.id));
+        const cacheStr = JSON.stringify([...cacheAtual].sort((a, b) => a.id - b.id));
+        const houveMudancasNoCache = pedidosAtuaisStr !== cacheStr;
+        
+        if (houveMudancasNoCache) {
+          console.log(`📦 Cache atualizado (fonte de verdade): ${cacheAtual.length} pedidos, sincronizando...`);
+          
+          // Detectar mudanças de status para animação
+          let pedidoMudouStatus = null;
+          let pedidoAnterior = null;
+          if (pedidosAnterioresRef.current.length > 0) {
+            pedidoMudouStatus = detectarMudancaStatus(pedidosAnterioresRef.current, cacheAtual);
+            if (pedidoMudouStatus) {
+              pedidoAnterior = pedidosAnterioresRef.current.find(p => p.id === pedidoMudouStatus.id);
+              console.log('Mudança de status detectada:', pedidoAnterior?.nomeCliente, 'PREPARANDO -> PRONTO');
+            }
+          }
+          
+          // Atualizar estado com dados do cache (fonte de verdade)
+          pedidosAnterioresRef.current = cacheAtual;
+          setPedidos(cacheAtual);
+          
+          // Processar animações se necessário
+          if (pedidoMudouStatus && pedidoAnterior && animacaoAtivada && !isModoGestor) {
+            animarTransicaoStatus(pedidoMudouStatus, pedidoAnterior);
+          }
+        } else {
+          // Cache está sincronizado, não precisa atualizar
+          // Log apenas em debug se necessário
+        }
+        
+        // IMPORTANTE: Banco é apenas espelho - NUNCA usar como fonte de verdade no polling
+        // Se o banco estiver vazio mas o cache tiver dados, tudo certo
+        // NÃO chamar listarTodosPedidos() quando há cache
+        return;
+      }
+      
+      // Se não houver cache OU cache estiver vazio, tentar buscar do banco (primeira vez ou cache foi limpo)
+      // Mas só se realmente não houver cache
+      if (!cacheAtual || (Array.isArray(cacheAtual) && cacheAtual.length === 0)) {
+        const dados = await pedidoService.listarTodosPedidos();
+        
+        // Se o banco também estiver vazio, manter estado atual (não limpar)
+        if ((!dados || dados.length === 0) && pedidos.length > 0) {
+          console.log('⚠️ Banco e cache vazios, mantendo estado atual.');
+          return;
+        }
+        
+        // Se houver dados no banco mas não no cache, usar banco (primeira vez)
+        if (dados && dados.length > 0) {
+          // Verificar se houve mudanças na fila (comparação mais robusta)
+          const pedidosAnterioresStr = JSON.stringify([...pedidosAnterioresRef.current].sort((a, b) => a.id - b.id));
+          const dadosStr = JSON.stringify([...dados].sort((a, b) => a.id - b.id));
+          const houveMudancas = pedidosAnterioresStr !== dadosStr;
+          
+          // Detectar mudanças de status para animação (funciona em ambos os modos)
+          let pedidoMudouStatus = null;
+          let pedidoAnterior = null;
+          if (pedidosAnterioresRef.current.length > 0 && houveMudancas) {
+            pedidoMudouStatus = detectarMudancaStatus(pedidosAnterioresRef.current, dados);
+            if (pedidoMudouStatus) {
+              pedidoAnterior = pedidosAnterioresRef.current.find(p => p.id === pedidoMudouStatus.id);
+              console.log('Mudança de status detectada:', pedidoAnterior?.nomeCliente, 'PREPARANDO -> PRONTO');
+            }
+          }
+          
+          if (houveMudancas) {
+            console.log('Mudanças detectadas na fila. Estava em animação:', isAnimating && !isModoGestor);
+          }
+          
+          // Se houver mudanças e estiver em animação periódica (modo visualizador), interromper suavemente
+          const estavaEmAnimacao = isAnimating && !isModoGestor;
+          
+          if (houveMudancas && estavaEmAnimacao) {
+            // Parar a animação periódica imediatamente
+            if (animacaoTimeoutRef.current) {
+              clearTimeout(animacaoTimeoutRef.current);
+              animacaoTimeoutRef.current = null;
+            }
+            if (animacaoIntervalRef.current) {
+              clearInterval(animacaoIntervalRef.current);
+              animacaoIntervalRef.current = null;
+            }
+            
+            // Aguardar transição CSS completar antes de remover a classe de animação
+            setTimeout(() => {
+              setIsAnimating(false);
+              
+              // Se houver mudança de status, animar transição após voltar para lista (apenas se animação estiver ativada)
+              if (pedidoMudouStatus && pedidoAnterior && animacaoAtivada) {
+                animarTransicaoStatus(pedidoMudouStatus, pedidoAnterior);
+                
+                // Reiniciar o intervalo de animação após a transição completar (apenas se animação estiver ativada)
+                setTimeout(() => {
+                  if (animacaoAtivada && !isModoGestor) {
+                    const animarAutomaticamente = () => {
+                      setIsAnimating(true);
+                      animacaoTimeoutRef.current = setTimeout(() => {
+                        setIsAnimating(false);
+                      }, duracaoAnimacao * 1000);
+                    };
+                    
+                    animacaoIntervalRef.current = setInterval(animarAutomaticamente, intervaloAnimacao * 1000);
+                  }
+                }, 2000); // Aguardar animação de transição completar (1s animação + 1s margem)
+              } else if (animacaoAtivada && !isModoGestor) {
+                // Se não houver mudança de status, apenas reiniciar o intervalo (apenas se animação estiver ativada)
+                const animarAutomaticamente = () => {
+                  setIsAnimating(true);
+                  animacaoTimeoutRef.current = setTimeout(() => {
+                    setIsAnimating(false);
+                  }, duracaoAnimacao * 1000);
+                };
+                
+                animacaoIntervalRef.current = setInterval(animarAutomaticamente, intervaloAnimacao * 1000);
+              }
+            }, 800); // Tempo da transição CSS
+          } else if (pedidoMudouStatus && pedidoAnterior && animacaoAtivada && !isModoGestor) {
+            // Se detectou mudança de status e NÃO estava em animação periódica, animar transição diretamente (apenas se animação estiver ativada)
+            animarTransicaoStatus(pedidoMudouStatus, pedidoAnterior);
+          }
+          
+          pedidosAnterioresRef.current = dados;
+          setPedidos(dados);
+        }
+      }
+    } catch (err) {
+      console.error('Erro ao carregar pedidos:', err);
+      // Se falhar, tentar usar cache
+      const cached = pedidoService.carregarCache();
+      if (cached) {
+        setPedidos(cached);
+      }
+    }
+  }, [pedidos, isAnimating, animacaoAtivada, isModoGestor, intervaloAnimacao, duracaoAnimacao]);
+
   useEffect(() => {
     // Carregar pedidos na inicialização
     carregarPedidos();
@@ -67,7 +257,7 @@ const FilaPedidos = ({ modo, onTrocarModo }) => {
     // Atualizar a cada 2 segundos
     const interval = setInterval(carregarPedidos, 2000);
     return () => clearInterval(interval);
-  }, []);
+  }, [carregarPedidos]);
 
   // Animação automática apenas no modo visualizador e se estiver ativada
   useEffect(() => {
@@ -341,196 +531,6 @@ const FilaPedidos = ({ modo, onTrocarModo }) => {
       // Não limpar o intervalo aqui, deixar que o próximo useEffect gerencie
     };
   }, [isModoGestor, pedidosPreparando.length, pedidosProntos.length, itensPorPaginaPreparando, itensPorPaginaPronto]);
-
-  const carregarPedidos = async () => {
-    try {
-      // JSON é a FONTE DE VERDADE - sempre verificar o cache primeiro
-      const cacheAtual = await pedidoService.carregarCache();
-      
-      // Se houver cache, usar como fonte de verdade (NUNCA chamar banco)
-      if (cacheAtual && Array.isArray(cacheAtual) && cacheAtual.length > 0) {
-        // Verificar se houve mudanças comparando com o estado atual
-        const pedidosAtuaisStr = JSON.stringify([...pedidos].sort((a, b) => a.id - b.id));
-        const cacheStr = JSON.stringify([...cacheAtual].sort((a, b) => a.id - b.id));
-        const houveMudancasNoCache = pedidosAtuaisStr !== cacheStr;
-        
-        if (houveMudancasNoCache) {
-          console.log(`📦 Cache atualizado (fonte de verdade): ${cacheAtual.length} pedidos, sincronizando...`);
-          
-          // Detectar mudanças de status para animação
-          let pedidoMudouStatus = null;
-          let pedidoAnterior = null;
-          if (pedidosAnterioresRef.current.length > 0) {
-            pedidoMudouStatus = detectarMudancaStatus(pedidosAnterioresRef.current, cacheAtual);
-            if (pedidoMudouStatus) {
-              pedidoAnterior = pedidosAnterioresRef.current.find(p => p.id === pedidoMudouStatus.id);
-              console.log('Mudança de status detectada:', pedidoAnterior?.nomeCliente, 'PREPARANDO -> PRONTO');
-            }
-          }
-          
-          // Atualizar estado com dados do cache (fonte de verdade)
-          pedidosAnterioresRef.current = cacheAtual;
-          setPedidos(cacheAtual);
-          
-          // Processar animações se necessário
-          if (pedidoMudouStatus && pedidoAnterior && animacaoAtivada && !isModoGestor) {
-            animarTransicaoStatus(pedidoMudouStatus, pedidoAnterior);
-          }
-        } else {
-          // Cache está sincronizado, não precisa atualizar
-          // Log apenas em debug se necessário
-        }
-        
-        // IMPORTANTE: Banco é apenas espelho - NUNCA usar como fonte de verdade no polling
-        // Se o banco estiver vazio mas o cache tiver dados, tudo certo
-        // NÃO chamar listarTodosPedidos() quando há cache
-        return;
-      }
-      
-      // Se não houver cache OU cache estiver vazio, tentar buscar do banco (primeira vez ou cache foi limpo)
-      // Mas só se realmente não houver cache
-      if (!cacheAtual || (Array.isArray(cacheAtual) && cacheAtual.length === 0)) {
-        const dados = await pedidoService.listarTodosPedidos();
-        
-        // Se o banco também estiver vazio, manter estado atual (não limpar)
-        if ((!dados || dados.length === 0) && pedidos.length > 0) {
-          console.log('⚠️ Banco e cache vazios, mantendo estado atual.');
-          return;
-        }
-        
-        // Se houver dados no banco mas não no cache, usar banco (primeira vez)
-        if (dados && dados.length > 0) {
-          // Verificar se houve mudanças na fila (comparação mais robusta)
-          const pedidosAnterioresStr = JSON.stringify([...pedidosAnterioresRef.current].sort((a, b) => a.id - b.id));
-          const dadosStr = JSON.stringify([...dados].sort((a, b) => a.id - b.id));
-          const houveMudancas = pedidosAnterioresStr !== dadosStr;
-          
-          // Detectar mudanças de status para animação (funciona em ambos os modos)
-          let pedidoMudouStatus = null;
-          let pedidoAnterior = null;
-          if (pedidosAnterioresRef.current.length > 0 && houveMudancas) {
-            pedidoMudouStatus = detectarMudancaStatus(pedidosAnterioresRef.current, dados);
-            if (pedidoMudouStatus) {
-              pedidoAnterior = pedidosAnterioresRef.current.find(p => p.id === pedidoMudouStatus.id);
-              console.log('Mudança de status detectada:', pedidoAnterior?.nomeCliente, 'PREPARANDO -> PRONTO');
-            }
-          }
-          
-          if (houveMudancas) {
-            console.log('Mudanças detectadas na fila. Estava em animação:', isAnimating && !isModoGestor);
-          }
-          
-          // Se houver mudanças e estiver em animação periódica (modo visualizador), interromper suavemente
-          const estavaEmAnimacao = isAnimating && !isModoGestor;
-          
-          if (houveMudancas && estavaEmAnimacao) {
-            // Parar a animação periódica imediatamente
-            if (animacaoTimeoutRef.current) {
-              clearTimeout(animacaoTimeoutRef.current);
-              animacaoTimeoutRef.current = null;
-            }
-            if (animacaoIntervalRef.current) {
-              clearInterval(animacaoIntervalRef.current);
-              animacaoIntervalRef.current = null;
-            }
-            
-            // Aguardar transição CSS completar antes de remover a classe de animação
-            setTimeout(() => {
-              setIsAnimating(false);
-              
-              // Se houver mudança de status, animar transição após voltar para lista (apenas se animação estiver ativada)
-              if (pedidoMudouStatus && pedidoAnterior && animacaoAtivada) {
-                animarTransicaoStatus(pedidoMudouStatus, pedidoAnterior);
-                
-                // Reiniciar o intervalo de animação após a transição completar (apenas se animação estiver ativada)
-                setTimeout(() => {
-                  if (animacaoAtivada && !isModoGestor) {
-                    const animarAutomaticamente = () => {
-                      setIsAnimating(true);
-                      animacaoTimeoutRef.current = setTimeout(() => {
-                        setIsAnimating(false);
-                      }, duracaoAnimacao * 1000);
-                    };
-                    
-                    animacaoIntervalRef.current = setInterval(animarAutomaticamente, intervaloAnimacao * 1000);
-                  }
-                }, 2000); // Aguardar animação de transição completar (1s animação + 1s margem)
-              } else if (animacaoAtivada && !isModoGestor) {
-                // Se não houver mudança de status, apenas reiniciar o intervalo (apenas se animação estiver ativada)
-                const animarAutomaticamente = () => {
-                  setIsAnimating(true);
-                  animacaoTimeoutRef.current = setTimeout(() => {
-                    setIsAnimating(false);
-                  }, duracaoAnimacao * 1000);
-                };
-                
-                animacaoIntervalRef.current = setInterval(animarAutomaticamente, intervaloAnimacao * 1000);
-              }
-            }, 800); // Tempo da transição CSS
-          } else if (pedidoMudouStatus && pedidoAnterior && animacaoAtivada && !isModoGestor) {
-            // Se detectou mudança de status e NÃO estava em animação periódica, animar transição diretamente (apenas se animação estiver ativada)
-            animarTransicaoStatus(pedidoMudouStatus, pedidoAnterior);
-          }
-          
-          pedidosAnterioresRef.current = dados;
-          setPedidos(dados);
-        }
-      }
-    } catch (err) {
-      console.error('Erro ao carregar pedidos:', err);
-      // Se falhar, tentar usar cache
-      const cached = pedidoService.carregarCache();
-      if (cached) {
-        setPedidos(cached);
-      }
-    }
-  };
-
-  // Detectar se algum pedido mudou de PREPARANDO para PRONTO
-  const detectarMudancaStatus = (pedidosAnteriores, pedidosAtuais) => {
-    // Verificar mudanças de status em pedidos existentes
-    for (const pedidoAtual of pedidosAtuais) {
-      const pedidoAnterior = pedidosAnteriores.find(p => p.id === pedidoAtual.id);
-      if (pedidoAnterior && 
-          pedidoAnterior.status === 'PREPARANDO' && 
-          pedidoAtual.status === 'PRONTO') {
-        return pedidoAtual;
-      }
-    }
-    
-    // Verificar se algum pedido novo foi adicionado diretamente como PRONTO
-    // (caso raro, mas pode acontecer)
-    for (const pedidoAtual of pedidosAtuais) {
-      const pedidoAnterior = pedidosAnteriores.find(p => p.id === pedidoAtual.id);
-      if (!pedidoAnterior && pedidoAtual.status === 'PRONTO') {
-        // Não animar pedidos novos, apenas mudanças de status
-        continue;
-      }
-    }
-    
-    return null;
-  };
-
-  // Animar transição de status
-  const animarTransicaoStatus = (pedido, pedidoAnterior) => {
-    setPedidoAnimando(pedido.id);
-    setPedidoAnimandoStatus('PREPARANDO'); // Começar na lista de preparando
-    // Guardar uma cópia do pedido com status antigo para mostrar na lista de preparando
-    setPedidoAnimandoDados({ ...pedidoAnterior, status: 'PREPARANDO' });
-    
-    // Após metade da animação, mudar para a lista de pronto
-    setTimeout(() => {
-      setPedidoAnimandoStatus('PRONTO');
-      setPedidoAnimandoDados({ ...pedido, status: 'PRONTO' });
-    }, 500);
-    
-    // Remover animação após a animação completar (1 segundo)
-    setTimeout(() => {
-      setPedidoAnimando(null);
-      setPedidoAnimandoStatus(null);
-      setPedidoAnimandoDados(null);
-    }, 1000);
-  };
 
   const handleAdicionarPedido = async (e) => {
     e.preventDefault();

@@ -171,9 +171,19 @@
                             <groupId>org.projectlombok</groupId>
                             <artifactId>lombok</artifactId>
                         </exclude>
+                        <exclude>
+                            <groupId>org.springframework.boot</groupId>
+                            <artifactId>spring-boot-devtools</artifactId>
+                        </exclude>
                     </excludes>
                     <mainClass>com.experimentaai.lobby.Launcher</mainClass>
-                    <jvmArguments>-Djava.awt.headless=false</jvmArguments>
+                    <jvmArguments>
+                        -Djava.awt.headless=false
+                        -Dfile.encoding=UTF-8
+                        -Xms256m
+                        -Xmx1024m
+                    </jvmArguments>
+                    <executable>true</executable>
                 </configuration>
                 <executions>
                     <execution>

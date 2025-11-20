@@ -34,11 +34,28 @@ public class StatusWindowRunner implements ApplicationListener<ApplicationReadyE
         logger.info("Aplicação pronta. Iniciando thread para exibir janela de status...");
         logger.info("Modo headless: {}", java.awt.GraphicsEnvironment.isHeadless());
 
-        new Thread(() -> {
-            waitForInitialization();
-            logger.info("Tentando exibir janela de status...");
-            statusWindow.show();
-        }, "StatusWindow-Thread").start();
+        // Usar SwingUtilities para garantir que a janela seja criada na EDT
+        javax.swing.SwingUtilities.invokeLater(() -> {
+            try {
+                waitForInitialization();
+                logger.info("Tentando exibir janela de status...");
+                statusWindow.show();
+                logger.info("Janela de status exibida com sucesso.");
+            } catch (Exception e) {
+                logger.error("Erro ao exibir janela de status", e);
+                // Tentar mostrar diálogo de erro
+                try {
+                    javax.swing.JOptionPane.showMessageDialog(
+                        null,
+                        "Erro ao exibir janela de status: " + e.getMessage(),
+                        "Erro - Lobby Pedidos",
+                        javax.swing.JOptionPane.ERROR_MESSAGE
+                    );
+                } catch (Exception ex) {
+                    logger.error("Não foi possível exibir diálogo de erro", ex);
+                }
+            }
+        });
     }
 
     private void waitForInitialization() {
@@ -47,6 +64,13 @@ public class StatusWindowRunner implements ApplicationListener<ApplicationReadyE
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             logger.warn("Thread de inicialização interrompida", e);
+        }
+    }
+    
+    // Método auxiliar para garantir que estamos na EDT
+    private void ensureEDT() {
+        if (!javax.swing.SwingUtilities.isEventDispatchThread()) {
+            logger.warn("Não estamos na EDT! Thread atual: {}", Thread.currentThread().getName());
         }
     }
 }
