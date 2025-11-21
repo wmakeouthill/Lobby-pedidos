@@ -1,0 +1,87 @@
+/* Estilos do Header/Cabeçalho */
+
+.header {
+    text-align: center;
+    color: white;
+    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+    padding: 15px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 15px;
+    backdrop-filter: blur(10px);
+    overflow: visible;
+    transition: all 1.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+.fila-pedidos-container.animando .header {
+    width: auto;
+    max-width: 100%;
+    margin: 0 auto;
+    overflow: visible;
+    height: auto;
+    background: transparent;
+    backdrop-filter: none;
+    border-radius: 0;
+    padding: 0;
+}
+
+.titulo-fila {
+    font-size: 1.4rem;
+    font-weight: 700;
+    margin: 0;
+    letter-spacing: 2px;
+    transition: all 0.4s ease-out;
+}
+
+.titulo-fila.escondido,
+.btn-trocar-modo.escondido,
+.btn-animacao-manual.escondido,
+.btn-config-animacao.escondido,
+.form-container.escondido {
+    opacity: 0 !important;
+    transform: translateY(-10px);
+    pointer-events: none !important;
+    visibility: hidden !important;
+    transition: all 0.8s ease-out;
+}
+
+.btn-trocar-modo {
+    padding: 8px 16px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    background: rgba(255, 255, 255, 0.2);
+    color: white;
+    border: 2px solid rgba(255, 255, 255, 0.5);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    backdrop-filter: blur(10px);
+    width: 100%;
+}
+
+.btn-trocar-modo:hover {
+    background: rgba(255, 255, 255, 0.3);
+    border-color: rgba(255, 255, 255, 0.8);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+}
+
+@media (max-width: 1024px) {
+    .titulo-fila {
+        font-size: 1.2rem;
+    }
+
+    .header {
+        padding: 12px;
+    }
+}
+
+@media (max-width: 768px) {
+    .titulo-fila {
+        font-size: 1.1rem;
+    }
+}

@@ -1,0 +1,47 @@
+/* Estilos da Coluna Lateral (Sidebar) */
+
+.coluna-lateral {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    overflow: visible;
+    width: 280px;
+    min-width: 280px;
+    max-width: 280px;
+    height: calc(100% - 10px);
+    max-height: calc(100vh - 20px);
+    transition: all 1.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    box-sizing: border-box;
+}
+
+.coluna-lateral.escondido {
+    opacity: 1;
+}
+
+.fila-pedidos-container.animando .coluna-lateral {
+    width: 100%;
+    min-width: 100%;
+    max-width: 100%;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    transform: none;
+    z-index: 10000;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    opacity: 1;
+    pointer-events: none;
+    height: 100vh;
+    overflow: visible;
+    padding: 20px;
+    box-sizing: border-box;
+}
+
+@media (max-width: 768px) {
+    .coluna-lateral {
+        order: 1;
+    }
+}

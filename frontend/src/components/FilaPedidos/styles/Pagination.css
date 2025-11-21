@@ -1,0 +1,82 @@
+/* Estilos de Paginação */
+
+.lista-paginada .card-pedido {
+    animation: fadeInPagina 0.8s ease-in-out;
+}
+
+@keyframes fadeInPagina {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.indicador-pagina-header {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    background: transparent;
+}
+
+.pagina-info-header {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: white;
+    text-align: center;
+    letter-spacing: 0.3px;
+    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3), 0 0 8px rgba(0, 0, 0, 0.2);
+    white-space: nowrap;
+}
+
+.pontos-pagina-header {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    justify-content: center;
+}
+
+.ponto-pagina-header {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.4);
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    cursor: default;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.ponto-pagina-header.ativo {
+    width: 24px;
+    height: 8px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.9);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3), 0 0 10px rgba(255, 255, 255, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.6);
+    animation: pulsePontoHeaderAtivo 0.6s ease-out;
+}
+
+@keyframes pulsePontoHeaderAtivo {
+    0% {
+        transform: scale(0.9);
+        opacity: 0.8;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3), 0 0 8px rgba(255, 255, 255, 0.3);
+    }
+
+    50% {
+        transform: scale(1.1);
+        opacity: 1;
+        box-shadow: 0 3px 8px rgba(0, 0, 0, 0.4), 0 0 15px rgba(255, 255, 255, 0.6);
+    }
+
+    100% {
+        transform: scale(1);
+        opacity: 1;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3), 0 0 10px rgba(255, 255, 255, 0.4);
+    }
+}

@@ -1,0 +1,91 @@
+/* Estilos base do container principal */
+.fila-pedidos-container {
+    height: 100vh;
+    display: grid;
+    grid-template-columns: 280px 1fr 1fr;
+    gap: 15px;
+    overflow: hidden;
+    padding: 5px;
+    position: relative;
+    transition: all 1.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    box-sizing: border-box;
+}
+
+.fila-pedidos-container.animando {
+    grid-template-columns: 1fr;
+    gap: 0;
+    padding: 0;
+}
+
+/* Transição suave ao voltar da animação periódica */
+.fila-pedidos-container.voltando-fila {
+    transition: all 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+.fila-pedidos-container.voltando-fila .coluna-lateral {
+    transition: opacity 0.8s ease-out, transform 0.8s ease-out,
+        width 0.8s ease-out, max-width 0.8s ease-out, min-width 0.8s ease-out !important;
+    opacity: 1 !important;
+    transform: scale(1) !important;
+    width: 280px !important;
+    min-width: 280px !important;
+    max-width: 280px !important;
+    position: relative !important;
+    top: auto !important;
+    left: auto !important;
+    right: auto !important;
+    bottom: auto !important;
+    z-index: auto !important;
+    display: flex !important;
+    align-items: flex-start !important;
+    justify-content: flex-start !important;
+    height: auto !important;
+    overflow: visible !important;
+    pointer-events: auto !important;
+}
+
+.fila-pedidos-container.voltando-fila .coluna-fila {
+    transition: opacity 0.8s ease-out, transform 0.8s ease-out,
+        filter 0.8s ease-out, width 0.8s ease-out, height 0.8s ease-out !important;
+    opacity: 1 !important;
+    transform: scale(1) !important;
+    filter: blur(0) !important;
+    width: auto !important;
+    height: auto !important;
+    position: relative !important;
+    overflow: visible !important;
+}
+
+.fila-pedidos-container.voltando-fila .coluna-fila.saindo {
+    opacity: 1 !important;
+    transform: scale(1) !important;
+    filter: blur(0) !important;
+    pointer-events: auto !important;
+}
+
+/* Media queries */
+@media (max-width: 1024px) {
+    .fila-pedidos-container {
+        grid-template-columns: 240px 1fr 1fr;
+    }
+}
+
+@media (max-width: 768px) {
+    .fila-pedidos-container {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto 1fr 1fr;
+        padding: 5px;
+    }
+
+    .coluna-lateral {
+        order: 1;
+    }
+
+    .coluna-fila.coluna-preparando {
+        order: 2;
+    }
+
+    .coluna-fila.coluna-pronto {
+        order: 3;
+    }
+}

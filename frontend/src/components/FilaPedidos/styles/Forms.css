@@ -1,0 +1,52 @@
+/* Estilos dos Formulários */
+
+.form-container {
+    background: white;
+    padding: 15px;
+    border-radius: 15px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    max-height: calc(100vh - 250px);
+}
+
+.form-adicionar {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.input-nome {
+    width: 100%;
+    padding: 12px 15px;
+    font-size: 1rem;
+    border: 3px solid #ff6b35;
+    border-radius: 12px;
+    outline: none;
+    transition: all 0.3s ease;
+}
+
+.input-nome:focus {
+    border-color: #f7931e;
+    box-shadow: 0 0 0 4px rgba(255, 107, 53, 0.2);
+}
+
+.error-message {
+    margin-top: 15px;
+    padding: 12px;
+    background: #ffebee;
+    color: #c62828;
+    border-radius: 8px;
+    border-left: 4px solid #c62828;
+    font-weight: 500;
+}
+
+@media (max-width: 768px) {
+
+    .input-nome,
+    .btn-adicionar {
+        width: 100%;
+    }
+}

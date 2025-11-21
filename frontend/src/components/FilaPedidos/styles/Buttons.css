@@ -1,0 +1,121 @@
+/* Estilos dos Botões */
+
+.btn-animacao-manual,
+.btn-config-animacao {
+    padding: 8px 16px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    background: rgba(255, 255, 255, 0.2);
+    color: white;
+    border: 2px solid rgba(255, 255, 255, 0.5);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    backdrop-filter: blur(10px);
+    width: 100%;
+}
+
+.btn-animacao-manual:hover:not(:disabled),
+.btn-config-animacao:hover {
+    background: rgba(255, 255, 255, 0.3);
+    border-color: rgba(255, 255, 255, 0.8);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+}
+
+.btn-animacao-manual:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.btn-acao {
+    width: 100%;
+    padding: 12px 20px;
+    font-size: 1rem;
+    font-weight: 600;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.btn-pronto {
+    background: linear-gradient(135deg, #66bb6a 0%, #4caf50 100%);
+    color: white;
+    box-shadow: 0 4px 15px rgba(76, 175, 80, 0.4);
+}
+
+.btn-pronto:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(76, 175, 80, 0.6);
+}
+
+.btn-remover {
+    background: linear-gradient(135deg, #ef5350 0%, #e53935 100%);
+    color: white;
+    box-shadow: 0 4px 15px rgba(239, 83, 80, 0.4);
+}
+
+.btn-remover:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(239, 83, 80, 0.6);
+}
+
+.btn-salvar,
+.btn-cancelar {
+    flex: 1;
+    padding: 12px 20px;
+    font-size: 1rem;
+    font-weight: 700;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.btn-salvar {
+    background: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%);
+    color: white;
+    box-shadow: 0 4px 15px rgba(255, 107, 53, 0.4);
+}
+
+.btn-salvar:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(255, 107, 53, 0.6);
+}
+
+.btn-cancelar {
+    background: #e0e0e0;
+    color: #555;
+}
+
+.btn-cancelar:hover {
+    background: #d0d0d0;
+    transform: translateY(-2px);
+}
+
+.btn-adicionar {
+    width: 100%;
+    padding: 12px 20px;
+    font-size: 1rem;
+    font-weight: 700;
+    background: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%);
+    color: white;
+    border: none;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 15px rgba(255, 107, 53, 0.4);
+}
+
+.btn-adicionar:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(255, 107, 53, 0.6);
+}
+
+.btn-adicionar:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}

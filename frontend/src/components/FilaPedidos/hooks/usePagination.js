@@ -21,9 +21,12 @@ const usePagination = (items, containerRef, isGestor) => {
 
             if (!primeiroItem || alturaContainer === 0) return null;
 
-            const alturaItem = primeiroItem.offsetHeight;
+            // Usar altura base definida no CSS (min-height: 75px) para cálculo
+            // Isso garante que calculamos quantos cards cabem no mínimo, e o flexbox expande
+            const alturaBase = 75;
             const gap = 15; // gap entre itens
-            const itens = Math.floor((alturaContainer + gap) / (alturaItem + gap));
+            // Subtrair um buffer de segurança (20px) para evitar cortes
+            const itens = Math.floor((alturaContainer - 20 + gap) / (alturaBase + gap));
 
             return Math.max(1, itens);
         };
@@ -42,7 +45,7 @@ const usePagination = (items, containerRef, isGestor) => {
             clearTimeout(timeoutId1);
             clearTimeout(timeoutId2);
         };
-    }, [isGestor, items.length]); // Recalcular quando itens mudam
+    }, [isGestor, items.length, containerRef]); // Recalcular quando itens mudam
 
     // Lógica de paginação automática
     useEffect(() => {

@@ -1,0 +1,169 @@
+/* Estilos da Animação do Surfista */
+
+.logo-container {
+    position: relative;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    transition: all 1.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+.fila-pedidos-container.animando .logo-container {
+    width: 100%;
+    max-width: calc(100vw - 40px);
+    padding-top: 30px;
+    padding-bottom: 30px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 40px;
+    margin: 0;
+    min-height: calc(100vh - 60px);
+    position: relative;
+    overflow: visible;
+    box-sizing: border-box;
+}
+
+.logo-imagem {
+    width: 100%;
+    height: auto;
+    max-width: none;
+    max-height: none;
+    object-fit: contain;
+    display: block;
+    transition: all 1.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    transform-origin: center;
+}
+
+.logo-imagem.expandido {
+    width: auto;
+    max-width: 80vw;
+    max-height: 70vh;
+    height: auto;
+    z-index: 1000;
+    position: relative;
+    transform: scale(1);
+    margin: 0 auto;
+    animation: bounceImagem 2s ease-in-out infinite;
+    filter: drop-shadow(0 20px 40px rgba(0, 0, 0, 0.3)) drop-shadow(0 0 30px rgba(255, 107, 53, 0.4));
+}
+
+@keyframes bounceImagem {
+
+    0%,
+    100% {
+        transform: scale(1) translateY(0);
+    }
+
+    50% {
+        transform: scale(1.05) translateY(-10px);
+    }
+}
+
+.hamburguer-container {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding-top: 15px;
+    flex-shrink: 0;
+    margin-top: auto;
+    position: relative;
+    transition: transform 1.4s cubic-bezier(0.34, 1.56, 0.64, 1),
+        width 1.4s cubic-bezier(0.34, 1.56, 0.64, 1),
+        padding 1.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+    will-change: transform;
+}
+
+.fila-pedidos-container.animando .hamburguer-container {
+    position: fixed;
+    bottom: 20px;
+    left: 20px;
+    right: auto;
+    width: auto;
+    padding: 0;
+    margin: 0;
+    z-index: 10001;
+    overflow: visible;
+    transform: translate(0, 0);
+    transition: transform 1.4s cubic-bezier(0.34, 1.56, 0.64, 1),
+        width 1.4s cubic-bezier(0.34, 1.56, 0.64, 1),
+        padding 1.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+    max-width: calc(100vw - 40px);
+    max-height: calc(100vh - 40px);
+}
+
+.hamburguer-imagem {
+    width: 100%;
+    height: auto;
+    max-width: none;
+    max-height: none;
+    object-fit: contain;
+    display: block;
+    transition: width 1.4s cubic-bezier(0.34, 1.56, 0.64, 1),
+        height 1.4s cubic-bezier(0.34, 1.56, 0.64, 1),
+        max-width 1.4s cubic-bezier(0.34, 1.56, 0.64, 1),
+        max-height 1.4s cubic-bezier(0.34, 1.56, 0.64, 1),
+        transform 1.4s cubic-bezier(0.34, 1.56, 0.64, 1),
+        filter 1.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+    transform-origin: center center;
+    will-change: transform, width, height, max-width, max-height;
+}
+
+.fila-pedidos-container.animando .hamburguer-imagem {
+    width: auto;
+    max-width: 20vw;
+    max-height: 25vh;
+    height: auto;
+    z-index: 10001;
+    position: relative;
+    transform: scale(1);
+    margin: 0;
+    animation: bounceImagem 2s ease-in-out infinite;
+    filter: drop-shadow(0 20px 40px rgba(0, 0, 0, 0.3)) drop-shadow(0 0 30px rgba(255, 107, 53, 0.4));
+    object-fit: contain;
+    display: block;
+}
+
+.fila-pedidos-container.animando .logo-imagem.expandido {
+    max-width: 40vw;
+    max-height: 45vh;
+    width: auto;
+    height: auto;
+    margin: 0 auto;
+    position: relative;
+    left: auto;
+    right: auto;
+    object-fit: contain;
+}
+
+@media (max-width: 1024px) {
+    .fila-pedidos-container.animando .logo-container {
+        max-width: calc(100vw - 20px);
+        padding-top: 0;
+        padding-bottom: 0;
+        min-height: calc(100vh - 20px);
+    }
+
+    .logo-imagem.expandido {
+        max-width: 80vw;
+        max-height: 65vh;
+    }
+}
+
+@media (max-width: 768px) {
+    .fila-pedidos-container.animando .logo-container {
+        max-width: calc(100vw - 10px);
+        padding-top: 0;
+        padding-bottom: 0;
+        min-height: calc(100vh - 10px);
+    }
+
+    .logo-imagem.expandido {
+        max-width: 85vw;
+        max-height: 60vh;
+    }
+}

@@ -65,7 +65,7 @@ const OrderList = ({
             </div>
             <div
                 ref={listRef}
-                className={`lista-pedidos ${!isModoGestor && infoPagina.temPagina ? "lista-paginada" : ""}`}
+                className={`lista-pedidos ${!isModoGestor ? "lista-paginada" : ""}`}
             >
                 {pedidosComAnimacao.length === 0 ? (
                     <div className="pedido-vazio">{emptyText}</div>

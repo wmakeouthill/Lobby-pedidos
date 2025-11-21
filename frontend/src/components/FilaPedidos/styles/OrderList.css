@@ -1,0 +1,169 @@
+/* Estilos das Listas de Pedidos */
+
+.coluna-fila {
+    background: white;
+    border-radius: 15px;
+    padding: 18px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-height: 0;
+    height: calc(100% - 10px);
+    max-height: calc(100vh - 20px);
+    transition: all 1.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    box-sizing: border-box;
+}
+
+.coluna-fila.saindo {
+    opacity: 0;
+    transform: scale(0.3) translateX(100%);
+    filter: blur(10px);
+    pointer-events: none;
+}
+
+.coluna-fila.coluna-preparando.saindo {
+    transform: scale(0.3) translateX(-100%);
+}
+
+.fila-pedidos-container.animando .coluna-fila {
+    position: absolute;
+    width: 0;
+    height: 0;
+    overflow: hidden;
+}
+
+.cabecalho-coluna {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 18px 20px;
+    border-radius: 16px;
+    margin-bottom: 18px;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15), 0 2px 8px rgba(0, 0, 0, 0.1);
+    flex-shrink: 0;
+    position: relative;
+    overflow: visible;
+    min-height: 70px;
+}
+
+.cabecalho-direita {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.cabecalho-coluna::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(135deg,
+            rgba(255, 255, 255, 0.2) 0%,
+            transparent 100%);
+    pointer-events: none;
+}
+
+.cabecalho-coluna.preparando {
+    background: linear-gradient(135deg, #ffa726 0%, #ff9800 100%);
+    color: white;
+    border: 2px solid rgba(255, 255, 255, 0.2);
+}
+
+.cabecalho-coluna.pronto {
+    background: linear-gradient(135deg, #66bb6a 0%, #4caf50 100%);
+    color: white;
+    border: 2px solid rgba(255, 255, 255, 0.2);
+}
+
+.cabecalho-coluna h2 {
+    font-size: 2rem;
+    font-weight: 900;
+    margin: 0;
+    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3), 0 0 10px rgba(0, 0, 0, 0.2);
+    letter-spacing: 1px;
+    position: relative;
+    z-index: 1;
+}
+
+.contador {
+    background: rgba(255, 255, 255, 0.35);
+    padding: 10px 24px;
+    border-radius: 25px;
+    font-size: 1.6rem;
+    font-weight: 800;
+    backdrop-filter: blur(12px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2),
+        inset 0 1px 2px rgba(255, 255, 255, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    position: relative;
+}
+
+.lista-pedidos {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    padding: 5px;
+    position: relative;
+}
+
+/* Modo visualizador: sem scroll, usa paginação */
+.lista-pedidos.lista-paginada {
+    overflow-y: hidden;
+}
+
+.lista-pedidos::-webkit-scrollbar {
+    width: 8px;
+}
+
+.lista-pedidos::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 10px;
+}
+
+.lista-pedidos::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 10px;
+}
+
+.lista-pedidos::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}
+
+.pedido-vazio {
+    text-align: center;
+    padding: 40px 20px;
+    color: #999;
+    font-size: 1.2rem;
+    font-style: italic;
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+@media (max-width: 768px) {
+    .coluna-fila.coluna-preparando {
+        order: 2;
+    }
+
+    .coluna-fila.coluna-pronto {
+        order: 3;
+    }
+
+    .cabecalho-coluna h2 {
+        font-size: 1.3rem;
+    }
+
+    .coluna-fila {
+        padding: 10px;
+    }
+
+    .cabecalho-coluna {
+        padding: 12px;
+    }
+}
