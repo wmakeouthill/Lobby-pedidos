@@ -96,19 +96,31 @@ const useOrders = () => {
         setError("");
         try {
             console.log("🔄 [Gestor] Adicionando novo pedido:", nomeCliente.trim());
-            await pedidoService.criarPedido(nomeCliente.trim());
-            // NÃO invalidar cache aqui - o SSE vai atualizar automaticamente
-            console.log("✅ [Gestor] Pedido criado! SSE propagará atualização automaticamente...");
-            // O SSE detectará a mudança e atualizará o estado reativamente
-            // Mas vamos fazer uma atualização imediata também para feedback visual rápido
-            const result = await carregarPedidos(true); // Forçar atualização imediata
-            if (result.dados) {
-                setPedidos(result.dados);
-                pedidosAnterioresRef.current = result.dados;
+            
+            // Criar pedido no backend
+            const novoPedido = await pedidoService.criarPedido(nomeCliente.trim());
+            
+            // ATUALIZAÇÃO OTIMISTA: Adicionar à UI imediatamente
+            if (novoPedido) {
+                setPedidos(prevPedidos => {
+                    const pedidosAtualizados = [...prevPedidos, novoPedido];
+                    // Atualizar referência também
+                    pedidosAnterioresRef.current = pedidosAtualizados;
+                    return pedidosAtualizados;
+                });
             }
+            
+            // SISTEMA REATIVO: Confiar 100% no SSE para confirmar atualização
+            // O SSE vai detectar a mudança no cache e propagar automaticamente
+            // Não fazer verificações manuais - isso quebra a reatividade
+            console.log("✅ [Gestor] Pedido criado! Atualização otimista aplicada, SSE confirmará reativamente...");
         } catch (err) {
             const msg = err.response?.data?.message || err.message || "Erro ao adicionar pedido";
             setError(msg);
+            
+            // Reverter atualização otimista em caso de erro
+            // Usar SSE para sincronizar - o SSE vai enviar o estado correto do servidor
+            // Não fazer carregamento manual - isso quebra a reatividade
             throw err;
         } finally {
             setLoading(false);
@@ -119,28 +131,37 @@ const useOrders = () => {
         try {
             setError("");
             console.log("🔄 [Gestor] Removendo pedido:", id);
+            
+            // ATUALIZAÇÃO OTIMISTA: Remover da UI imediatamente
+            setPedidos(prevPedidos => {
+                const pedidosAtualizados = prevPedidos.filter(pedido => pedido.id !== id);
+                // Atualizar referência também
+                pedidosAnterioresRef.current = pedidosAtualizados;
+                return pedidosAtualizados;
+            });
+            
+            // Fazer a requisição ao backend
             await pedidoService.removerPedido(id);
-            // NÃO invalidar cache aqui - o SSE vai atualizar automaticamente
-            console.log("✅ [Gestor] Pedido removido! SSE propagará atualização automaticamente...");
-            // O SSE detectará a mudança e atualizará o estado reativamente
-            // Mas vamos fazer uma atualização imediata também para feedback visual rápido
-            const result = await carregarPedidos(true); // Forçar atualização imediata
-            if (result.dados) {
-                setPedidos(result.dados);
-                pedidosAnterioresRef.current = result.dados;
-            }
+            
+            // SISTEMA REATIVO: Confiar 100% no SSE para confirmar atualização
+            // O SSE vai detectar a mudança no cache e propagar automaticamente
+            // Não fazer verificações manuais - isso quebra a reatividade
+            console.log("✅ [Gestor] Pedido removido! Atualização otimista aplicada, SSE confirmará reativamente...");
         } catch (err) {
             const msg = err.response?.data?.message || err.message || "Erro ao remover pedido";
             setError(msg);
+            
+            // Reverter atualização otimista em caso de erro
+            // Usar SSE para sincronizar - se SSE não confirmar, ele vai corrigir automaticamente
+            // Apenas invalidar cache para forçar recarga via SSE
             if (err.response?.status === 404) {
-                // Apenas invalidar e recarregar em caso de erro 404
                 invalidarCachePedidos();
-                const result = await carregarPedidos(true); // Forçar atualização
-                if (result.dados) {
-                    setPedidos(result.dados);
-                    pedidosAnterioresRef.current = result.dados;
-                }
+                // SSE vai detectar e atualizar automaticamente
+            } else {
+                // Para outros erros, confiar no SSE para sincronizar
+                // O SSE vai enviar o estado correto do servidor
             }
+            throw err;
         }
     }, [carregarPedidos, invalidarCachePedidos]);
 
@@ -148,22 +169,39 @@ const useOrders = () => {
         try {
             setError("");
             console.log("🔄 [Gestor] Marcando pedido como pronto:", id);
+            
+            // ATUALIZAÇÃO OTIMISTA: Atualizar UI imediatamente para feedback visual
+            setPedidos(prevPedidos => {
+                const pedidosAtualizados = prevPedidos.map(pedido => 
+                    pedido.id === id 
+                        ? { ...pedido, status: "PRONTO" }
+                        : pedido
+                );
+                // Atualizar referência também
+                pedidosAnterioresRef.current = pedidosAtualizados;
+                return pedidosAtualizados;
+            });
+            
+            // Fazer a requisição ao backend
             await pedidoService.marcarComoPronto(id);
-            // NÃO invalidar cache aqui - o SSE vai atualizar automaticamente
-            // Invalidar cache pode causar race condition com o SSE
-            console.log("✅ [Gestor] Pedido marcado! SSE propagará atualização automaticamente...");
-            // O SSE detectará a mudança e atualizará o estado reativamente
+            
+            // SISTEMA REATIVO: Confiar 100% no SSE para confirmar atualização
+            // O SSE vai detectar a mudança no cache e propagar automaticamente
+            // Não fazer verificações manuais - isso quebra a reatividade
+            console.log("✅ [Gestor] Pedido marcado! Atualização otimista aplicada, SSE confirmará reativamente...");
         } catch (err) {
             const msg = err.response?.data?.message || err.message || "Erro ao marcar como pronto";
             setError(msg);
+            
+            // Reverter atualização otimista em caso de erro
+            // Usar SSE para sincronizar - se SSE não confirmar, ele vai corrigir automaticamente
+            // Apenas invalidar cache para forçar recarga via SSE
             if (err.response?.status === 404) {
-                // Apenas invalidar e recarregar em caso de erro 404
                 invalidarCachePedidos();
-                const result = await carregarPedidos(true); // Forçar atualização
-                if (result.dados) {
-                    setPedidos(result.dados);
-                    pedidosAnterioresRef.current = result.dados;
-                }
+                // SSE vai detectar e atualizar automaticamente
+            } else {
+                // Para outros erros, confiar no SSE para sincronizar
+                // O SSE vai enviar o estado correto do servidor
             }
             throw err;
         }

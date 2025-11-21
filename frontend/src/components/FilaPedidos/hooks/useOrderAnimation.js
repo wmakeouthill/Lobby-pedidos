@@ -16,6 +16,10 @@ const useOrderAnimation = (animacaoConfig, isModoGestor, carregarPedidos, setPed
     const carregamentoInicialRef = useRef(false); // Flag para evitar carregamento inicial repetido
     const pedidosAtuaisRef = useRef([]); // Referência para estado atual dos pedidos (para comparação)
     const sseConectadoUmaVezRef = useRef(false); // Flag para garantir conexão SSE única
+    const filaEventosRef = useRef([]); // Fila de eventos SSE para processar sequencialmente
+    const processandoFilaRef = useRef(false); // Flag para controlar processamento da fila
+    const ultimoEventoProcessadoRef = useRef(null); // Último evento processado para merge
+    const debounceTimerRef = useRef(null); // Timer para debounce de eventos rápidos
     
     // Refs para funções que podem mudar de referência
     const carregarPedidosRef = useRef(carregarPedidos);
@@ -160,15 +164,96 @@ const useOrderAnimation = (animacaoConfig, isModoGestor, carregarPedidos, setPed
         let pollingInterval = null;
         let verificarConexaoSSE = null;
 
-        const processarAtualizacaoPedidos = (dados, fonte = 'SSE') => {
-            // Proteção contra processamento simultâneo
-            if (processandoRef.current) {
-                console.log(`📡 [${fonte}] Processamento já em andamento, ignorando`);
+        // Processar fila de eventos sequencialmente
+        const processarFilaEventos = async () => {
+            if (processandoFilaRef.current || filaEventosRef.current.length === 0) {
                 return;
             }
 
+            processandoFilaRef.current = true;
+
+            while (filaEventosRef.current.length > 0) {
+                const evento = filaEventosRef.current.shift();
+                console.log(`📡 [FILA] Processando evento da fila (${filaEventosRef.current.length} restantes)`);
+                await processarAtualizacaoPedidosInterno(evento.dados, evento.fonte);
+            }
+
+            processandoFilaRef.current = false;
+        };
+
+        // Merge de eventos: combinar múltiplos eventos rápidos em um único
+        const mergeEventos = (eventos) => {
+            if (eventos.length === 0) return null;
+            if (eventos.length === 1) return eventos[0].dados;
+
+            // Usar o evento mais recente como base
+            const eventoMaisRecente = eventos[eventos.length - 1];
+            console.log(`📡 [MERGE] Combinando ${eventos.length} eventos rápidos, usando o mais recente`);
+            
+            // O evento mais recente já contém o estado final correto
+            return eventoMaisRecente.dados;
+        };
+
+        // Adicionar evento à fila com debounce para eventos muito rápidos
+        const adicionarEventoAFila = (dados, fonte = 'SSE') => {
             if (!Array.isArray(dados)) {
                 console.warn(`📡 [${fonte}] Dados inválidos recebidos:`, dados);
+                return;
+            }
+
+            // Limpar timer de debounce anterior
+            if (debounceTimerRef.current) {
+                clearTimeout(debounceTimerRef.current);
+            }
+
+            // Adicionar evento à fila
+            filaEventosRef.current.push({ dados, fonte, timestamp: Date.now() });
+            
+            // Limitar tamanho da fila para evitar acúmulo excessivo
+            if (filaEventosRef.current.length > 10) {
+                console.warn(`📡 [${fonte}] Fila muito grande (${filaEventosRef.current.length}), mantendo apenas os 10 mais recentes`);
+                // Manter apenas os 10 mais recentes
+                filaEventosRef.current = filaEventosRef.current.slice(-10);
+            }
+
+            // Debounce: aguardar 100ms para ver se chegam mais eventos antes de processar
+            debounceTimerRef.current = setTimeout(() => {
+                // Se já está processando, aguardar
+                if (processandoRef.current || processandoFilaRef.current) {
+                    console.log(`📡 [${fonte}] Processamento em andamento, aguardando (${filaEventosRef.current.length} na fila)`);
+                    processarFilaEventos();
+                    return;
+                }
+
+                // Se há múltiplos eventos na fila, fazer merge
+                if (filaEventosRef.current.length > 1) {
+                    const eventosParaProcessar = [...filaEventosRef.current];
+                    filaEventosRef.current = [];
+                    
+                    const dadosMerged = mergeEventos(eventosParaProcessar);
+                    if (dadosMerged) {
+                        console.log(`📡 [${fonte}] Processando ${eventosParaProcessar.length} eventos merged`);
+                        processarAtualizacaoPedidosInterno(dadosMerged, fonte);
+                    }
+                } else if (filaEventosRef.current.length === 1) {
+                    // Apenas um evento, processar diretamente
+                    const evento = filaEventosRef.current.shift();
+                    processarAtualizacaoPedidosInterno(evento.dados, evento.fonte);
+                }
+            }, 100); // Debounce de 100ms para eventos rápidos
+        };
+
+        // Função interna de processamento (sem verificação de fila)
+        const processarAtualizacaoPedidosInterno = async (dados, fonte = 'SSE') => {
+            if (!Array.isArray(dados)) {
+                console.warn(`📡 [${fonte}] Dados inválidos recebidos:`, dados);
+                return;
+            }
+
+            // Proteção contra processamento simultâneo
+            if (processandoRef.current) {
+                console.log(`📡 [${fonte}] Processamento já em andamento, adicionando à fila`);
+                filaEventosRef.current.push({ dados, fonte, timestamp: Date.now() });
                 return;
             }
 
@@ -220,11 +305,43 @@ const useOrderAnimation = (animacaoConfig, isModoGestor, carregarPedidos, setPed
                     return;
                 }
                 
-                // Se ambos estão vazios, não há nada para processar
-                if (pedidosAnteriores.length === 0 && dados.length === 0) {
-                    console.log(`📡 [${fonte}] Ambos arrays vazios, nada para processar`);
+                // IMPORTANTE: Se dados está vazio mas havia pedidos antes, é uma remoção total
+                // NÃO ignorar - precisa atualizar para mostrar lista vazia
+                if (pedidosAnteriores.length > 0 && dados.length === 0) {
+                    console.log(`📡 [${fonte}] ⚠️ Todos os pedidos foram removidos (${pedidosAnteriores.length} → 0), atualizando para lista vazia`);
+                    console.log(`📡 [${fonte}] Estado atual antes da atualização: ${pedidosAtuaisRef.current?.length || 0} pedidos`);
+                    pedidosAnterioresRef.current = [];
                     pedidosAtuaisRef.current = [];
+                    setPedidosRef.current([]);
+                    console.log(`📡 [${fonte}] ✅ Estado atualizado para lista vazia`);
                     return;
+                }
+                
+                // Se ambos estão vazios desde o início, verificar se precisa sincronizar
+                // IMPORTANTE: Mesmo que ambos estejam vazios, pode ser que o estado atual ainda tenha pedidos
+                // (por exemplo, se a atualização otimista não sincronizou corretamente)
+                if (pedidosAnteriores.length === 0 && dados.length === 0) {
+                    // Verificar se o estado atual também está vazio
+                    const estadoAtualVazio = !pedidosAtuaisRef.current || pedidosAtuaisRef.current.length === 0;
+                    if (estadoAtualVazio) {
+                        // Ambos vazios e estado já está vazio - pode ignorar
+                        // Mas garantir que as referências estão sincronizadas
+                        if (pedidosAnterioresRef.current.length !== 0 || pedidosAtuaisRef.current.length !== 0) {
+                            console.log(`📡 [${fonte}] Sincronizando referências para vazio`);
+                            pedidosAnterioresRef.current = [];
+                            pedidosAtuaisRef.current = [];
+                        } else {
+                            console.log(`📡 [${fonte}] Ambos arrays vazios e estado já está vazio, nada para processar`);
+                        }
+                        return;
+                    } else {
+                        // Estado atual tem pedidos mas SSE diz que está vazio - atualizar!
+                        console.log(`📡 [${fonte}] ⚠️ SSE diz vazio mas estado atual tem ${pedidosAtuaisRef.current.length} pedidos, sincronizando para vazio`);
+                        pedidosAnterioresRef.current = [];
+                        pedidosAtuaisRef.current = [];
+                        setPedidosRef.current([]);
+                        return;
+                    }
                 }
                 
                 // Comparação otimizada SEM mutar arrays originais
@@ -243,7 +360,10 @@ const useOrderAnimation = (animacaoConfig, isModoGestor, carregarPedidos, setPed
                     console.log(`📡 [${fonte}] Atuais:`, dados.map(p => `ID:${p.id} Status:${p.status}`));
                 }
 
-                if (!houveMudancas && pedidosAnteriores.length > 0) {
+                // IMPORTANTE: Não ignorar se dados está vazio mas havia pedidos antes
+                // Isso significa que todos foram removidos e precisa atualizar
+                // (já foi tratado acima, mas verificar novamente aqui para garantir)
+                if (!houveMudancas && pedidosAnteriores.length > 0 && dados.length > 0) {
                     console.log(`📡 [${fonte}] Nenhuma mudança real detectada, ignorando`);
                     return;
                 }
@@ -343,11 +463,12 @@ const useOrderAnimation = (animacaoConfig, isModoGestor, carregarPedidos, setPed
                         }, 800);
                     }
 
-                    // Atualizar estado e referência imediatamente para outras mudanças
+                    // SISTEMA REATIVO: Atualizar estado automaticamente quando SSE envia dados
+                    // Isso funciona como signals do Angular - quando o SSE emite, atualiza automaticamente
                     pedidosAnterioresRef.current = dados;
                     pedidosAtuaisRef.current = dados; // Atualizar referência de estado atual
                     if (!animacaoTransicaoEmAndamento) {
-                        console.log(`📡 [${fonte}] Atualizando estado com ${dados.length} pedidos`);
+                        console.log(`📡 [${fonte}] ✅ Atualização reativa via SSE: ${dados.length} pedidos`);
                         setPedidosRef.current(dados);
                     } else {
                         console.log(`📡 [${fonte}] Animação em andamento, aguardando finalização para atualizar`);
@@ -355,7 +476,16 @@ const useOrderAnimation = (animacaoConfig, isModoGestor, carregarPedidos, setPed
                 }
             } finally {
                 processandoRef.current = false;
+                // Processar próximo evento da fila se houver
+                if (filaEventosRef.current.length > 0) {
+                    setTimeout(() => processarFilaEventos(), 10);
+                }
             }
+        };
+
+        // Wrapper público que adiciona à fila se necessário
+        const processarAtualizacaoPedidos = (dados, fonte = 'SSE') => {
+            adicionarEventoAFila(dados, fonte);
         };
 
         const iniciarAnimacaoPeriodica = () => {
@@ -408,37 +538,40 @@ const useOrderAnimation = (animacaoConfig, isModoGestor, carregarPedidos, setPed
             }, intervaloPolling);
         };
 
-        // Handlers SSE
+        // Handlers SSE - SISTEMA REATIVO (como signals do Angular)
+        // Quando o backend emite um evento SSE, este handler é chamado automaticamente
+        // Funciona como Observable.subscribe() ou signal effect() do Angular
         const handleSSEMessage = (data) => {
             // Marcar como conectado quando receber primeira mensagem
             if (!sseConnectedRef.current) {
                 sseConnectedRef.current = true;
-                console.log("📡 [SSE] Conexão confirmada pela primeira mensagem");
+                console.log("📡 [SSE] ✅ Conexão reativa estabelecida - sistema funcionando como signals do Angular");
                 
-                // Parar polling se estiver rodando
+                // Parar polling se estiver rodando (SSE é a fonte de verdade)
                 if (pollingInterval) {
                     clearInterval(pollingInterval);
                     pollingInterval = null;
-                    console.log("📡 [SSE] Polling parado - SSE ativo");
+                    console.log("📡 [SSE] Polling parado - SSE reativo ativo");
                 }
             }
 
-            console.log(`📡 [SSE] Evento recebido:`, data);
+            console.log(`📡 [SSE] 🔔 Evento reativo recebido (como signal emit):`, data);
             
             // Processar eventos nomeados ou com tipo PEDIDOS_ATUALIZADOS
+            // TODOS os eventos passam por aqui - sistema totalmente reativo
             if (data.tipo === 'PEDIDOS_ATUALIZADOS' && data.dados) {
-                console.log(`📡 [SSE] Processando atualização de pedidos via SSE`);
+                console.log(`📡 [SSE] ✅ Processando atualização reativa de pedidos (signal update)`);
                 processarAtualizacaoPedidos(data.dados, 'SSE');
             } else if (Array.isArray(data.dados)) {
                 // Fallback: se os dados vierem diretamente como array
-                console.log(`📡 [SSE] Processando dados diretos via SSE`);
+                console.log(`📡 [SSE] ✅ Processando dados reativos diretos (signal update)`);
                 processarAtualizacaoPedidos(data.dados, 'SSE');
             } else if (Array.isArray(data)) {
                 // Fallback: se os dados vierem como array direto
-                console.log(`📡 [SSE] Processando array direto via SSE`);
+                console.log(`📡 [SSE] ✅ Processando array reativo direto (signal update)`);
                 processarAtualizacaoPedidos(data, 'SSE');
             } else {
-                console.warn(`📡 [SSE] Formato de dados não reconhecido:`, data);
+                console.warn(`📡 [SSE] ⚠️ Formato de dados não reconhecido:`, data);
             }
         };
 
@@ -505,8 +638,14 @@ const useOrderAnimation = (animacaoConfig, isModoGestor, carregarPedidos, setPed
                 clearTimeout(verificarConexaoSSE);
                 verificarConexaoSSE = null;
             }
+            if (debounceTimerRef.current) {
+                clearTimeout(debounceTimerRef.current);
+                debounceTimerRef.current = null;
+            }
             processandoRef.current = false;
+            processandoFilaRef.current = false;
             sseConnectedRef.current = false;
+            filaEventosRef.current = [];
             // NÃO resetar carregamentoInicialRef nem sseConectadoUmaVezRef aqui
             // Eles devem persistir durante toda a sessão para evitar reconexões
         };
