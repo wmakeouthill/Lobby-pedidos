@@ -3,7 +3,6 @@ import { useState, useEffect, useRef } from 'react';
 const usePagination = (items, containerRef, isGestor) => {
     const [pagina, setPagina] = useState(0);
     const [itensPorPagina, setItensPorPagina] = useState(null);
-    const paginacaoIntervalRef = useRef(null);
 
     // Calcular itens por página
     useEffect(() => {
@@ -47,13 +46,9 @@ const usePagination = (items, containerRef, isGestor) => {
         };
     }, [isGestor, items.length, containerRef]); // Recalcular quando itens mudam
 
-    // Lógica de paginação automática
+    // Lógica de paginação (sem automático)
     useEffect(() => {
         if (isGestor) {
-            if (paginacaoIntervalRef.current) {
-                clearInterval(paginacaoIntervalRef.current);
-                paginacaoIntervalRef.current = null;
-            }
             setPagina(0);
             return;
         }
@@ -70,33 +65,8 @@ const usePagination = (items, containerRef, isGestor) => {
             }
         };
 
-        const trocarPagina = () => {
-            if (itensPorPagina && items.length > itensPorPagina) {
-                const totalPaginas = Math.ceil(items.length / itensPorPagina);
-                if (totalPaginas > 1) {
-                    setPagina(prev => (prev + 1) % totalPaginas);
-                }
-            }
-        };
-
-        const timeoutId = setTimeout(() => {
-            ajustarPagina();
-
-            if (paginacaoIntervalRef.current) {
-                clearInterval(paginacaoIntervalRef.current);
-            }
-
-            if (itensPorPagina && items.length > itensPorPagina) {
-                paginacaoIntervalRef.current = setInterval(trocarPagina, 5000);
-            }
-        }, 300);
-
-        return () => {
-            clearTimeout(timeoutId);
-            if (paginacaoIntervalRef.current) {
-                clearInterval(paginacaoIntervalRef.current);
-            }
-        };
+        // Ajustar página quando itens mudam
+        ajustarPagina();
     }, [isGestor, items.length, itensPorPagina]);
 
     const itensPaginados = (() => {

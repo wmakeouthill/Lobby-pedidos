@@ -45,7 +45,8 @@ const FilaPedidos = ({ modo, onTrocarModo }) => {
     isModoGestor,
     carregarPedidos,
     setPedidos,
-    pedidosAnterioresRef
+    pedidosAnterioresRef,
+    pedidos // Passar estado atual para sincronização
   );
 
   // Handler para animação manual
@@ -55,6 +56,19 @@ const FilaPedidos = ({ modo, onTrocarModo }) => {
     setTimeout(() => {
       setIsAnimating(false);
     }, animacaoConfig.duracaoAnimacao * 1000);
+  };
+
+
+  // Handler para marcar como pronto - SSE atualizará reativamente
+  const handleMarcarComoPronto = async (id) => {
+    try {
+      console.log("🔄 Marcando pedido como pronto:", id);
+      await marcarComoPronto(id);
+      console.log("✅ Pedido marcado! SSE propagará atualização instantaneamente");
+      // O SSE detectará a mudança e atualizará o estado reativamente
+    } catch (err) {
+      console.error("❌ Erro ao marcar como pronto:", err);
+    }
   };
 
   return (
@@ -99,7 +113,7 @@ const FilaPedidos = ({ modo, onTrocarModo }) => {
         pedidoAnimando={pedidoAnimando}
         pedidoAnimandoDados={pedidoAnimandoDados}
         pedidoAnimandoStatus={pedidoAnimandoStatus}
-        handleMarcarComoPronto={marcarComoPronto}
+        handleMarcarComoPronto={handleMarcarComoPronto}
         handleRemoverPedido={removerPedido}
       />
 
@@ -112,7 +126,7 @@ const FilaPedidos = ({ modo, onTrocarModo }) => {
         pedidoAnimando={pedidoAnimando}
         pedidoAnimandoDados={pedidoAnimandoDados}
         pedidoAnimandoStatus={pedidoAnimandoStatus}
-        handleMarcarComoPronto={marcarComoPronto}
+        handleMarcarComoPronto={handleMarcarComoPronto}
         handleRemoverPedido={removerPedido}
       />
     </div>

@@ -40,16 +40,14 @@ const Header = ({
             >
                 🔄 Trocar Modo
             </button>
-            {!isModoGestor && (
-                <button
-                    className={`btn-animacao-manual ${isAnimating ? "escondido" : ""}`}
-                    onClick={handleAnimacaoManual}
-                    disabled={isAnimating}
-                    title="Reproduzir animação manualmente"
-                >
-                    ✨ Animar
-                </button>
-            )}
+            <button
+                className={`btn-animacao-manual ${isAnimating ? "escondido" : ""}`}
+                onClick={handleAnimacaoManual}
+                disabled={isAnimating}
+                title="Reproduzir animação manualmente"
+            >
+                ✨ Animar
+            </button>
             <button
                 className={`btn-config-animacao ${isAnimating ? "escondido" : ""}`}
                 onClick={() => setShowConfig(true)}

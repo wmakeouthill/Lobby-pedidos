@@ -20,14 +20,23 @@ import java.util.Map;
 @Service
 public class CacheService {
 
+    // Interface funcional para listeners de mudança nos pedidos
+    @FunctionalInterface
+    public interface PedidoChangeListener {
+        void onPedidosChanged(Object pedidos);
+    }
+
     private static final String APP_NAME = "LobbyPedidos";
     private static final String CACHE_DIR_NAME = "cache";
     private static final String PEDIDOS_CACHE_FILE = "pedidos.json";
     private static final String ANIMACAO_CONFIG_FILE = "animacao_config.json";
-    
+
     // ObjectMapper injetado como singleton do Spring (configurado em JacksonConfig)
     private final ObjectMapper objectMapper;
     private final Path cacheDirectory;
+
+    // Lista de listeners para mudanças nos pedidos
+    private final List<PedidoChangeListener> pedidoChangeListeners = new java.util.concurrent.CopyOnWriteArrayList<>();
 
     // Construtor com inicialização do diretório de cache
     public CacheService(ObjectMapper objectMapper) {
@@ -101,6 +110,9 @@ public class CacheService {
             // Salvar cache (pode ser array vazio se já existir cache anterior)
             objectMapper.writerWithDefaultPrettyPrinter().writeValue(filePath.toFile(), pedidos);
             log.info("✅ Cache de pedidos salvo com sucesso em: {}", filePath.toAbsolutePath());
+
+            // Notificar listeners sobre a mudança
+            notifyPedidoChangeListeners(pedidos);
         } catch (IOException e) {
             log.error("❌ Erro ao salvar cache de pedidos: {}", e.getMessage(), e);
             // Não lançar exceção para não interromper a operação principal
@@ -166,6 +178,35 @@ public class CacheService {
 
     public String getCacheDirectoryPath() {
         return cacheDirectory.toAbsolutePath().toString();
+    }
+
+    // Métodos para gerenciar listeners de mudança nos pedidos
+    public void addPedidoChangeListener(PedidoChangeListener listener) {
+        pedidoChangeListeners.add(listener);
+        log.info("📡 Listener de mudança de pedidos adicionado. Total: {}", pedidoChangeListeners.size());
+    }
+
+    public void removePedidoChangeListener(PedidoChangeListener listener) {
+        pedidoChangeListeners.remove(listener);
+        log.info("📡 Listener de mudança de pedidos removido. Total: {}", pedidoChangeListeners.size());
+    }
+
+    private void notifyPedidoChangeListeners(Object pedidos) {
+        int totalListeners = pedidoChangeListeners.size();
+        log.info("📢 Notificando {} listener(s) sobre mudança nos pedidos", totalListeners);
+        
+        if (totalListeners == 0) {
+            log.warn("⚠️ Nenhum listener registrado! As atualizações SSE não serão enviadas.");
+        }
+        
+        for (PedidoChangeListener listener : pedidoChangeListeners) {
+            try {
+                listener.onPedidosChanged(pedidos);
+                log.debug("✅ Listener notificado com sucesso");
+            } catch (Exception e) {
+                log.warn("Erro ao notificar listener de mudança de pedidos: {}", e.getMessage(), e);
+            }
+        }
     }
 }
 

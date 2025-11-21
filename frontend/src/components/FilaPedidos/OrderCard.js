@@ -17,6 +17,10 @@ const OrderCard = ({
         : ""
         }`;
 
+    if (pedidoAnimando === pedido.id) {
+        console.log(`🎨 [OrderCard] Pedido ${pedido.id} está animando! Status: ${pedido.status}, Classe: ${isPreparando ? "animando-saida" : "animando-entrada"}`);
+    }
+
     return (
         <div className={className} data-pedido-id={pedido.id}>
             <div className="card-content">

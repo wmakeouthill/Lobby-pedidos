@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
+import pedidoService from '../../../services/pedidoService';
 
-const useOrderAnimation = (animacaoConfig, isModoGestor, carregarPedidos, setPedidos, pedidosAnterioresRef) => {
+const useOrderAnimation = (animacaoConfig, isModoGestor, carregarPedidos, setPedidos, pedidosAnterioresRef, pedidosAtuais = []) => {
     const [isAnimating, setIsAnimating] = useState(false);
     const [pedidoAnimando, setPedidoAnimando] = useState(null);
     const [pedidoAnimandoStatus, setPedidoAnimandoStatus] = useState(null);
@@ -9,127 +10,507 @@ const useOrderAnimation = (animacaoConfig, isModoGestor, carregarPedidos, setPed
     const pedidoAnimandoRef = useRef(null);
     const animacaoTimeoutRef = useRef(null);
     const animacaoIntervalRef = useRef(null);
+    const pedidosAnimadosRef = useRef(new Set()); // Rastrear pedidos já animados para evitar duplicação
+    const processandoRef = useRef(false); // Proteção contra processamento simultâneo
+    const sseConnectedRef = useRef(false); // Estado de conexão SSE
+    const carregamentoInicialRef = useRef(false); // Flag para evitar carregamento inicial repetido
+    const pedidosAtuaisRef = useRef([]); // Referência para estado atual dos pedidos (para comparação)
+    const sseConectadoUmaVezRef = useRef(false); // Flag para garantir conexão SSE única
+    
+    // Refs para funções que podem mudar de referência
+    const carregarPedidosRef = useRef(carregarPedidos);
+    const setPedidosRef = useRef(setPedidos);
+    const isModoGestorRef = useRef(isModoGestor);
+    const animacaoConfigRef = useRef(animacaoConfig);
+
+    // Atualizar refs quando mudarem
+    useEffect(() => {
+        carregarPedidosRef.current = carregarPedidos;
+        setPedidosRef.current = setPedidos;
+        isModoGestorRef.current = isModoGestor;
+        animacaoConfigRef.current = animacaoConfig;
+    }, [carregarPedidos, setPedidos, isModoGestor, animacaoConfig]);
+    
+    // Sincronizar pedidosAnterioresRef com o estado atual sempre que pedidos mudarem
+    // Isso garante que temos o estado correto para comparação quando o SSE chegar
+    // IMPORTANTE: Sincronizar ANTES de processar SSE, não depois
+    useEffect(() => {
+        if (Array.isArray(pedidosAtuais)) {
+            const refAtual = pedidosAnterioresRef.current;
+            const refAtualStr = JSON.stringify([...refAtual].sort((a, b) => (a.id || 0) - (b.id || 0)));
+            const pedidosAtuaisStr = JSON.stringify([...pedidosAtuais].sort((a, b) => (a.id || 0) - (b.id || 0)));
+            
+            // Sincronizar se houver diferenças (mas não durante processamento SSE)
+            if (!processandoRef.current && refAtualStr !== pedidosAtuaisStr) {
+                console.log(`🔄 [SYNC] Sincronizando pedidosAnterioresRef: ${refAtual.length} → ${pedidosAtuais.length} pedidos`);
+                pedidosAnterioresRef.current = [...pedidosAtuais];
+                pedidosAtuaisRef.current = [...pedidosAtuais];
+            }
+        }
+    }, [pedidosAtuais]);
 
     const { animacaoAtivada, intervaloAnimacao, duracaoAnimacao } = animacaoConfig;
 
-    // Detectar mudança de status
+    // Detectar mudança de status  
     const detectarMudancaStatus = (pedidosAnteriores, pedidosAtuais) => {
+        console.log("🔍 [Animation] Detectando mudança de status...");
+        console.log("🔍 [Animation] Pedidos anteriores:", pedidosAnteriores.map(p => `ID:${p.id} Status:${p.status}`));
+        console.log("🔍 [Animation] Pedidos atuais:", pedidosAtuais.map(p => `ID:${p.id} Status:${p.status}`));
+
+        // Verificar todos os pedidos atuais
         for (const pedidoAtual of pedidosAtuais) {
             const pedidoAnterior = pedidosAnteriores.find(p => p.id === pedidoAtual.id);
+            
+            // Caso 1: Pedido existia antes e mudou de PREPARANDO para PRONTO
             if (pedidoAnterior && pedidoAnterior.status === "PREPARANDO" && pedidoAtual.status === "PRONTO") {
+                console.log("✅ [Animation] MUDANÇA DETECTADA! Pedido", pedidoAtual.id, "mudou de PREPARANDO → PRONTO");
                 return pedidoAtual;
             }
+            
+            // Caso 2: Pedido novo que já veio como PRONTO (não deve animar, mas logar)
+            if (!pedidoAnterior && pedidoAtual.status === "PRONTO") {
+                console.log("ℹ️ [Animation] Pedido novo", pedidoAtual.id, "já veio como PRONTO (não animar)");
+            }
         }
+        
+        // Verificar se algum pedido foi removido (não é transição de status, mas é mudança)
+        for (const pedidoAnterior of pedidosAnteriores) {
+            const pedidoAtual = pedidosAtuais.find(p => p.id === pedidoAnterior.id);
+            if (!pedidoAtual) {
+                console.log("ℹ️ [Animation] Pedido", pedidoAnterior.id, "foi removido");
+            }
+        }
+        
+        console.log("❌ [Animation] Nenhuma mudança de status PREPARANDO→PRONTO detectada");
         return null;
     };
 
     // Animar transição
-    const animarTransicaoStatus = (pedido, pedidoAnterior) => {
-        console.log("🎬 Iniciando animação de transição:", pedido.id);
-        setPedidoAnimando(pedido.id);
-        pedidoAnimandoRef.current = pedido.id;
+    const animarTransicaoStatus = (pedido, pedidoAnterior, dadosFinais) => {
+        const pedidoId = pedido.id;
+        
+        // Proteção: não animar se já está animando ou já foi animado
+        if (pedidoAnimandoRef.current === pedidoId || pedidosAnimadosRef.current.has(pedidoId)) {
+            console.log("⚠️ [Animation] Pedido", pedidoId, "já está sendo animado ou já foi animado, ignorando");
+            return;
+        }
+
+        console.log("🎬 Iniciando animação de transição:", pedidoId);
+        
+        // Marcar como animando
+        setPedidoAnimando(pedidoId);
+        pedidoAnimandoRef.current = pedidoId;
+        pedidosAnimadosRef.current.add(pedidoId);
+        
         setPedidoAnimandoStatus("PREPARANDO");
         setPedidoAnimandoDados({ ...pedidoAnterior, status: "PREPARANDO" });
 
         setTimeout(() => {
+            console.log("🎬 [500ms] Mudando para PRONTO");
             setPedidoAnimandoStatus("PRONTO");
             setPedidoAnimandoDados({ ...pedido, status: "PRONTO" });
         }, 500);
 
-        setTimeout(async () => {
+        setTimeout(() => {
+            console.log("🎬 [1000ms] Finalizando animação");
+            
+            // Primeiro limpar estados de animação
             setPedidoAnimando(null);
             pedidoAnimandoRef.current = null;
             setPedidoAnimandoStatus(null);
             setPedidoAnimandoDados(null);
 
-            // Atualizar estado final
-            const result = await carregarPedidos();
-            if (result.dados) {
-                setPedidos(result.dados);
-                pedidosAnterioresRef.current = result.dados;
+            // Atualizar estado final APENAS UMA VEZ com os dados já recebidos
+            // IMPORTANTE: O estado visual já está correto porque:
+            // 1. O pedido animando foi removido das listas (pedidoAnimando === null)
+            // 2. Os dados finais já contêm o pedido no status correto (PRONTO)
+            // 3. A atualização aqui é apenas para sincronizar o estado interno
+            // Não deve causar piscar porque o React só re-renderiza se os dados mudarem
+            if (dadosFinais && Array.isArray(dadosFinais)) {
+                // Atualizar referências primeiro (sempre necessário para sincronização)
+                pedidosAnterioresRef.current = dadosFinais;
+                pedidosAtuaisRef.current = dadosFinais;
+                
+                // Atualizar estado - React vai comparar e só re-renderizar se necessário
+                // Como o pedido animando já foi removido visualmente, esta atualização
+                // apenas garante que o estado interno está sincronizado
+                setPedidosRef.current(dadosFinais);
+                console.log("✅ Estado final sincronizado (sem piscar - React otimiza re-renders)");
+            } else {
+                console.warn("⚠️ Dados finais inválidos, não atualizando estado");
             }
+
+            // Limpar do set de animados após um delay para permitir nova animação se necessário
+            setTimeout(() => {
+                pedidosAnimadosRef.current.delete(pedidoId);
+                console.log("🧹 Pedido", pedidoId, "removido do set de animados");
+            }, 2000);
         }, 1000);
     };
 
-    // Polling e verificação de mudanças
+    // Sistema Híbrido: SSE + Polling Inteligente
+    // Este useEffect deve executar APENAS UMA VEZ na montagem do componente
     useEffect(() => {
-        const verificarMudancas = async () => {
-            const result = await carregarPedidos();
-            if (!result) return;
+        // Se já foi conectado, não reconectar
+        if (sseConectadoUmaVezRef.current) {
+            console.log("📡 [HYBRID] SSE já foi conectado anteriormente, pulando reconexão");
+            return;
+        }
+        
+        let pollingInterval = null;
+        let verificarConexaoSSE = null;
 
-            const { dados, houveMudancas, primeiraCarga, pedidosAnteriores } = result;
+        const processarAtualizacaoPedidos = (dados, fonte = 'SSE') => {
+            // Proteção contra processamento simultâneo
+            if (processandoRef.current) {
+                console.log(`📡 [${fonte}] Processamento já em andamento, ignorando`);
+                return;
+            }
 
-            if (primeiraCarga || houveMudancas) {
+            if (!Array.isArray(dados)) {
+                console.warn(`📡 [${fonte}] Dados inválidos recebidos:`, dados);
+                return;
+            }
+
+            console.log(`📡 [${fonte}] Processando atualização: ${dados.length} pedidos recebidos`);
+
+            processandoRef.current = true;
+
+            try {
+                // CRÍTICO: Para detectar mudanças corretamente, especialmente no visualizador,
+                // SEMPRE usar o ESTADO ATUAL dos pedidos como referência anterior
+                // O pedidosAnterioresRef pode não estar sincronizado quando o SSE chega
+                let pedidosAnteriores = [];
+                
+                // SEMPRE priorizar estado atual passado como parâmetro (mais confiável)
+                // Isso garante que comparamos com o que está realmente na tela
+                // IMPORTANTE: Usar mesmo se estiver vazio, pois pode ser que todos foram removidos
+                if (Array.isArray(pedidosAtuais)) {
+                    console.log(`📡 [${fonte}] ✅ Usando estado atual (pedidosAtuais) como referência anterior: ${pedidosAtuais.length} pedidos`);
+                    pedidosAnteriores = [...pedidosAtuais];
+                }
+                // Fallback: Se estado atual não for array válido, usar pedidosAnterioresRef
+                else if (Array.isArray(pedidosAnterioresRef.current)) {
+                    console.log(`📡 [${fonte}] ⚠️ Estado atual não é array válido, usando pedidosAnterioresRef: ${pedidosAnterioresRef.current.length} pedidos`);
+                    pedidosAnteriores = [...pedidosAnterioresRef.current];
+                }
+                // Último recurso: Usar pedidosAtuaisRef
+                else if (Array.isArray(pedidosAtuaisRef.current)) {
+                    console.log(`📡 [${fonte}] ⚠️ Usando pedidosAtuaisRef como último recurso: ${pedidosAtuaisRef.current.length} pedidos`);
+                    pedidosAnteriores = [...pedidosAtuaisRef.current];
+                }
+                else {
+                    console.log(`📡 [${fonte}] ⚠️ Nenhuma referência válida encontrada, usando array vazio`);
+                    pedidosAnteriores = [];
+                }
+                
+                console.log(`📡 [${fonte}] Estado anterior capturado: ${pedidosAnteriores.length} pedidos`);
+                if (pedidosAnteriores.length > 0) {
+                    console.log(`📡 [${fonte}] Pedidos anteriores:`, pedidosAnteriores.map(p => `ID:${p.id} Status:${p.status}`));
+                } else {
+                    console.log(`📡 [${fonte}] ⚠️ ATENÇÃO: Nenhum pedido anterior encontrado! Pode ser primeira carga`);
+                }
+                
+                // Primeira carga - sempre atualizar (mas só se realmente for primeira carga)
+                if (pedidosAnteriores.length === 0 && dados.length > 0) {
+                    console.log(`📡 [${fonte}] Primeira carga detectada, atualizando estado`);
+                    pedidosAnterioresRef.current = dados;
+                    pedidosAtuaisRef.current = dados;
+                    setPedidosRef.current(dados);
+                    return;
+                }
+                
+                // Se ambos estão vazios, não há nada para processar
+                if (pedidosAnteriores.length === 0 && dados.length === 0) {
+                    console.log(`📡 [${fonte}] Ambos arrays vazios, nada para processar`);
+                    pedidosAtuaisRef.current = [];
+                    return;
+                }
+                
+                // Comparação otimizada SEM mutar arrays originais
+                const pedidosAnterioresOrdenados = [...pedidosAnteriores].sort((a, b) => (a.id || 0) - (b.id || 0));
+                const dadosOrdenados = [...dados].sort((a, b) => (a.id || 0) - (b.id || 0));
+                const pedidosAnterioresStr = JSON.stringify(pedidosAnterioresOrdenados);
+                const dadosStr = JSON.stringify(dadosOrdenados);
+                const houveMudancas = pedidosAnterioresStr !== dadosStr;
+
+                console.log(`📡 [${fonte}] Comparação: ${pedidosAnteriores.length} anteriores vs ${dados.length} atuais. Mudanças: ${houveMudancas}`);
+                
+                // Log detalhado para debug
+                if (houveMudancas) {
+                    console.log(`📡 [${fonte}] DETALHES DA MUDANÇA:`);
+                    console.log(`📡 [${fonte}] Anteriores:`, pedidosAnteriores.map(p => `ID:${p.id} Status:${p.status}`));
+                    console.log(`📡 [${fonte}] Atuais:`, dados.map(p => `ID:${p.id} Status:${p.status}`));
+                }
+
+                if (!houveMudancas && pedidosAnteriores.length > 0) {
+                    console.log(`📡 [${fonte}] Nenhuma mudança real detectada, ignorando`);
+                    return;
+                }
+
+                const animacaoTransicaoEmAndamento = pedidoAnimandoRef.current !== null;
                 let pedidoMudouStatus = null;
                 let pedidoAnterior = null;
-                const animacaoTransicaoEmAndamento = pedidoAnimandoRef.current !== null;
 
-                if (pedidosAnteriores.length > 0 && houveMudancas) {
+                // Detectar mudança de status PREPARANDO → PRONTO (sempre que houver mudanças)
+                if (houveMudancas) {
+                    console.log(`🔍 [${fonte}] Analisando mudanças para detectar transição PREPARANDO→PRONTO...`);
+                    console.log(`🔍 [${fonte}] Comparando ${pedidosAnteriores.length} anteriores com ${dados.length} atuais`);
+                    
+                    // Detectar mudança ANTES de atualizar qualquer referência
                     pedidoMudouStatus = detectarMudancaStatus(pedidosAnteriores, dados);
+                    
                     if (pedidoMudouStatus) {
                         pedidoAnterior = pedidosAnteriores.find(p => p.id === pedidoMudouStatus.id);
+                        
+                        if (pedidoAnterior) {
+                            console.log(`✅ [${fonte}] Pedido ${pedidoMudouStatus.id} mudou de status! Anterior: ${pedidoAnterior.status}, Atual: ${pedidoMudouStatus.status}`);
+                        } else {
+                            console.log(`⚠️ [${fonte}] Pedido ${pedidoMudouStatus.id} não encontrado nos anteriores, mas detectou mudança`);
+                            // Se não encontrou o pedido anterior mas detectou mudança, pode ser que:
+                            // 1. O pedido foi criado e já veio como PRONTO (não animar)
+                            // 2. A referência estava desatualizada (tentar buscar do estado atual)
+                            // Por segurança, não criar pedido anterior fictício aqui
+                            pedidoMudouStatus = null;
+                        }
+                        
+                        // Verificar se já foi animado recentemente
+                        if (pedidoMudouStatus && pedidosAnimadosRef.current.has(pedidoMudouStatus.id)) {
+                            console.log(`⚠️ [${fonte}] Pedido ${pedidoMudouStatus.id} já foi animado recentemente, mas permitindo nova animação`);
+                            // Não bloquear - permitir animação novamente se realmente mudou
+                        }
+                    } else {
+                        console.log(`ℹ️ [${fonte}] Nenhuma transição PREPARANDO→PRONTO detectada (pode ser adição/remoção de pedido)`);
                     }
+                } else {
+                    console.log(`ℹ️ [${fonte}] Nenhuma mudança detectada na comparação JSON`);
                 }
 
-                const estavaEmAnimacao = isAnimating && !isModoGestor;
+                // Priorizar animação de transição se houver mudança de status PREPARANDO → PRONTO
+                if (pedidoMudouStatus && pedidoAnterior && !animacaoTransicaoEmAndamento) {
+                    console.log(`🎬 [${fonte}] ✅ CONDIÇÕES ATENDIDAS PARA ANIMAÇÃO:`);
+                    console.log(`🎬 [${fonte}] - pedidoMudouStatus:`, pedidoMudouStatus.id, pedidoMudouStatus.status);
+                    console.log(`🎬 [${fonte}] - pedidoAnterior:`, pedidoAnterior.id, pedidoAnterior.status);
+                    console.log(`🎬 [${fonte}] - animacaoTransicaoEmAndamento:`, animacaoTransicaoEmAndamento);
+                    console.log(`🎬 [${fonte}] Mudança PREPARANDO→PRONTO detectada - iniciando animação para pedido ${pedidoMudouStatus.id}`);
 
-                let animacaoIniciadaAgora = false;
-
-                if (houveMudancas && estavaEmAnimacao) {
-                    // Interromper animação periódica
-                    if (animacaoTimeoutRef.current) clearTimeout(animacaoTimeoutRef.current);
-                    if (animacaoIntervalRef.current) clearInterval(animacaoIntervalRef.current);
-
-                    setTimeout(() => {
+                    // Interromper animação periódica se estiver rodando
+                    if (animacaoTimeoutRef.current) {
+                        clearTimeout(animacaoTimeoutRef.current);
+                    }
+                    if (animacaoIntervalRef.current) {
+                        clearInterval(animacaoIntervalRef.current);
                         setIsAnimating(false);
-                        if (pedidoMudouStatus && pedidoAnterior && !animacaoTransicaoEmAndamento) {
-                            animarTransicaoStatus(pedidoMudouStatus, pedidoAnterior);
-                            // Reiniciar animação periódica depois
-                            setTimeout(() => {
-                                if (animacaoAtivada && !isModoGestor) {
-                                    iniciarAnimacaoPeriodica();
-                                }
-                            }, 2000);
-                        } else if (animacaoAtivada && !isModoGestor) {
+                    }
+
+                    // Animar passando os dados finais
+                    // NÃO atualizar estado aqui - a animação vai atualizar no final
+                    // Apenas atualizar referências para evitar detecção de mudança duplicada
+                    pedidosAnterioresRef.current = dados;
+                    pedidosAtuaisRef.current = dados;
+                    
+                    // Chamar animação (ela vai atualizar o estado no final)
+                    console.log(`🎬 [${fonte}] Chamando animarTransicaoStatus...`);
+                    animarTransicaoStatus(pedidoMudouStatus, pedidoAnterior, dados);
+                    console.log(`🎬 [${fonte}] animarTransicaoStatus chamado com sucesso`);
+
+                    // Reiniciar animação periódica depois da transição
+                    setTimeout(() => {
+                        if (animacaoConfigRef.current.animacaoAtivada && !isModoGestorRef.current) {
                             iniciarAnimacaoPeriodica();
                         }
-                    }, 800);
+                    }, 2000);
 
-                    // Se houve mudança e estava animando, assumimos que a animação vai tratar (ou o timeout acima)
-                    // Mas se for transição de status, marcamos aqui também para garantir
-                    if (pedidoMudouStatus && pedidoAnterior && animacaoAtivada && !animacaoTransicaoEmAndamento) {
-                        animacaoIniciadaAgora = true;
+                } else {
+                    console.log(`🎬 [${fonte}] ❌ CONDIÇÕES NÃO ATENDIDAS PARA ANIMAÇÃO:`);
+                    console.log(`🎬 [${fonte}] - pedidoMudouStatus:`, pedidoMudouStatus ? `${pedidoMudouStatus.id} (${pedidoMudouStatus.status})` : 'null');
+                    console.log(`🎬 [${fonte}] - pedidoAnterior:`, pedidoAnterior ? `${pedidoAnterior.id} (${pedidoAnterior.status})` : 'null');
+                    console.log(`🎬 [${fonte}] - animacaoTransicaoEmAndamento:`, animacaoTransicaoEmAndamento);
+                    
+                    // Atualização normal sem animação de transição
+                    console.log(`📡 [${fonte}] Atualização normal dos pedidos (sem animação de transição)`);
+
+                    // Interromper animação periódica se houver mudanças
+                    if (houveMudancas && isAnimating && !isModoGestor) {
+                        if (animacaoTimeoutRef.current) clearTimeout(animacaoTimeoutRef.current);
+                        if (animacaoIntervalRef.current) clearInterval(animacaoIntervalRef.current);
+
+                        setTimeout(() => {
+                            setIsAnimating(false);
+                            if (animacaoConfigRef.current.animacaoAtivada && !isModoGestorRef.current) {
+                                iniciarAnimacaoPeriodica();
+                            }
+                        }, 800);
                     }
 
-                } else if (pedidoMudouStatus && pedidoAnterior && !isModoGestor && !animacaoTransicaoEmAndamento) {
-                    animarTransicaoStatus(pedidoMudouStatus, pedidoAnterior);
-                    animacaoIniciadaAgora = true;
-                }
-
-                // Atualizar estado se não estiver animando transição
-                if (houveMudancas || primeiraCarga) {
+                    // Atualizar estado e referência imediatamente para outras mudanças
                     pedidosAnterioresRef.current = dados;
-                    if (!animacaoTransicaoEmAndamento && !animacaoIniciadaAgora) {
-                        setPedidos(dados);
+                    pedidosAtuaisRef.current = dados; // Atualizar referência de estado atual
+                    if (!animacaoTransicaoEmAndamento) {
+                        console.log(`📡 [${fonte}] Atualizando estado com ${dados.length} pedidos`);
+                        setPedidosRef.current(dados);
+                    } else {
+                        console.log(`📡 [${fonte}] Animação em andamento, aguardando finalização para atualizar`);
                     }
                 }
+            } finally {
+                processandoRef.current = false;
             }
         };
 
         const iniciarAnimacaoPeriodica = () => {
             const animar = () => {
                 setIsAnimating(true);
-                animacaoTimeoutRef.current = setTimeout(() => setIsAnimating(false), duracaoAnimacao * 1000);
+                animacaoTimeoutRef.current = setTimeout(() => setIsAnimating(false), animacaoConfigRef.current.duracaoAnimacao * 1000);
             };
-            animacaoIntervalRef.current = setInterval(animar, intervaloAnimacao * 1000);
+            animacaoIntervalRef.current = setInterval(animar, animacaoConfigRef.current.intervaloAnimacao * 1000);
         };
 
-        // Inicialização
-        verificarMudancas();
-        const intervalId = setInterval(verificarMudancas, 2000);
+        // Polling inteligente como fallback (apenas se SSE não conectar)
+        const iniciarPollingInteligente = () => {
+            if (pollingInterval) {
+                clearInterval(pollingInterval);
+                pollingInterval = null;
+            }
 
-        return () => clearInterval(intervalId);
-    }, [carregarPedidos, isModoGestor, animacaoAtivada, intervaloAnimacao, duracaoAnimacao, isAnimating]);
+            // Não iniciar polling se SSE já está conectado
+            if (sseConnectedRef.current) {
+                console.log("📡 [HYBRID] SSE já conectado, não iniciando polling");
+                return;
+            }
+
+            // Polling adaptativo: mais frequente quando animação ativa, menos quando inativa
+            const intervaloPolling = (animacaoConfigRef.current.animacaoAtivada && !isModoGestorRef.current) ? 5000 : 10000; // 5s ou 10s (mais conservador)
+
+            console.log(`⏱️ [POLLING] Iniciando polling inteligente (${intervaloPolling}ms)`);
+            pollingInterval = setInterval(async () => {
+                // Verificar novamente se SSE conectou
+                if (sseConnectedRef.current || pedidoService.isSSEConectado()) {
+                    console.log("📡 [POLLING] SSE conectou, parando polling");
+                    if (pollingInterval) {
+                        clearInterval(pollingInterval);
+                        pollingInterval = null;
+                    }
+                    return;
+                }
+
+                // Evitar processamento se já está processando
+                if (processandoRef.current) {
+                    console.log("⏱️ [POLLING] Processamento em andamento, pulando");
+                    return;
+                }
+
+                console.log("⏱️ [POLLING] Verificação inteligente...");
+                const result = await carregarPedidosRef.current(true); // Forçar atualização no polling
+                if (result && result.dados) {
+                    processarAtualizacaoPedidos(result.dados, 'POLLING');
+                }
+            }, intervaloPolling);
+        };
+
+        // Handlers SSE
+        const handleSSEMessage = (data) => {
+            // Marcar como conectado quando receber primeira mensagem
+            if (!sseConnectedRef.current) {
+                sseConnectedRef.current = true;
+                console.log("📡 [SSE] Conexão confirmada pela primeira mensagem");
+                
+                // Parar polling se estiver rodando
+                if (pollingInterval) {
+                    clearInterval(pollingInterval);
+                    pollingInterval = null;
+                    console.log("📡 [SSE] Polling parado - SSE ativo");
+                }
+            }
+
+            console.log(`📡 [SSE] Evento recebido:`, data);
+            
+            // Processar eventos nomeados ou com tipo PEDIDOS_ATUALIZADOS
+            if (data.tipo === 'PEDIDOS_ATUALIZADOS' && data.dados) {
+                console.log(`📡 [SSE] Processando atualização de pedidos via SSE`);
+                processarAtualizacaoPedidos(data.dados, 'SSE');
+            } else if (Array.isArray(data.dados)) {
+                // Fallback: se os dados vierem diretamente como array
+                console.log(`📡 [SSE] Processando dados diretos via SSE`);
+                processarAtualizacaoPedidos(data.dados, 'SSE');
+            } else if (Array.isArray(data)) {
+                // Fallback: se os dados vierem como array direto
+                console.log(`📡 [SSE] Processando array direto via SSE`);
+                processarAtualizacaoPedidos(data, 'SSE');
+            } else {
+                console.warn(`📡 [SSE] Formato de dados não reconhecido:`, data);
+            }
+        };
+
+        const handleSSEError = (error) => {
+            console.warn("📡 [SSE] Erro na conexão:", error);
+            sseConnectedRef.current = false;
+            
+            // Iniciar polling apenas se não estiver rodando
+            if (!pollingInterval) {
+                console.log("📡 [SSE] Ativando polling inteligente como fallback");
+                iniciarPollingInteligente();
+            }
+        };
+
+        // Conectar SSE primeiro (apenas uma vez)
+        console.log("📡 [HYBRID] Tentando conectar SSE...");
+        pedidoService.conectarSSE(handleSSEMessage, handleSSEError);
+        sseConectadoUmaVezRef.current = true;
+
+        // Carregamento inicial (apenas uma vez, mesmo se houver 0 pedidos)
+        const carregarInicial = async () => {
+            if (carregamentoInicialRef.current) {
+                console.log("📡 [HYBRID] Carregamento inicial já foi executado, pulando");
+                return;
+            }
+            
+            carregamentoInicialRef.current = true;
+            console.log("📡 [HYBRID] Executando carregamento inicial...");
+            
+            const result = await carregarPedidosRef.current(true); // Forçar atualização inicial
+            if (result && result.dados) {
+                pedidosAnterioresRef.current = result.dados;
+                setPedidosRef.current(result.dados);
+                console.log("📡 [HYBRID] Estado inicial carregado:", result.dados.length, "pedidos");
+            } else {
+                // Mesmo com 0 pedidos, atualizar a referência para evitar loops
+                pedidosAnterioresRef.current = [];
+                setPedidosRef.current([]);
+                console.log("📡 [HYBRID] Estado inicial carregado: 0 pedidos");
+            }
+        };
+        carregarInicial();
+
+        // Timeout para verificar se SSE conectou (com verificação real)
+        verificarConexaoSSE = setTimeout(() => {
+            const realmenteConectado = pedidoService.isSSEConectado();
+            if (!realmenteConectado && !sseConnectedRef.current) {
+                console.log("📡 [HYBRID] SSE não conectou após 2s, iniciando polling inteligente");
+                iniciarPollingInteligente();
+            } else if (realmenteConectado) {
+                sseConnectedRef.current = true;
+                console.log("📡 [HYBRID] SSE confirmado conectado");
+            }
+        }, 2000);
+
+        return () => {
+            console.log("📡 [HYBRID] Limpando recursos do SSE...");
+            pedidoService.desconectarSSE();
+            if (pollingInterval) {
+                clearInterval(pollingInterval);
+                pollingInterval = null;
+            }
+            if (verificarConexaoSSE) {
+                clearTimeout(verificarConexaoSSE);
+                verificarConexaoSSE = null;
+            }
+            processandoRef.current = false;
+            sseConnectedRef.current = false;
+            // NÃO resetar carregamentoInicialRef nem sseConectadoUmaVezRef aqui
+            // Eles devem persistir durante toda a sessão para evitar reconexões
+        };
+    }, []); // Array vazio = executa apenas uma vez na montagem
 
     // Animação periódica (Surfer)
     useEffect(() => {
@@ -154,13 +535,18 @@ const useOrderAnimation = (animacaoConfig, isModoGestor, carregarPedidos, setPed
         };
     }, [isModoGestor, animacaoAtivada, intervaloAnimacao, duracaoAnimacao]);
 
+    // Sincronizar pedidosAtuaisRef com pedidosAnterioresRef
+    // Removido useEffect que causava re-renders desnecessários
+    // A sincronização agora é feita diretamente onde necessário
+
     return {
         isAnimating,
         setIsAnimating,
         pedidoAnimando,
         pedidoAnimandoStatus,
         pedidoAnimandoDados,
-        animarTransicaoStatus
+        animarTransicaoStatus,
+        forceCheck: () => { } // Placeholder - will be implemented
     };
 };
 

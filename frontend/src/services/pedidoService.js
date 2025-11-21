@@ -3,6 +3,87 @@ import axios from 'axios';
 const API_BASE_URL = '/api/pedidos';
 const CACHE_API_URL = '/api/cache';
 
+// Classe para gerenciar Server-Sent Events
+class SseManager {
+  constructor() {
+    this.eventSource = null;
+    this.listeners = new Map();
+    this.reconnectAttempts = 0;
+    this.maxReconnectAttempts = 5;
+    this.reconnectDelay = 1000;
+  }
+
+  connect(onMessage, onError) {
+    if (this.eventSource) {
+      this.disconnect();
+    }
+
+    try {
+      this.eventSource = new EventSource(`${CACHE_API_URL}/pedidos/stream`);
+
+      // Capturar eventos nomeados (pedidos-update)
+      this.eventSource.addEventListener('pedidos-update', (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          console.log('📡 SSE: Recebida atualização em tempo real (evento nomeado):', data);
+          if (onMessage) onMessage(data);
+        } catch (error) {
+          console.error('📡 SSE: Erro ao processar mensagem nomeada:', error);
+        }
+      });
+
+      // Também capturar eventos sem nome como fallback
+      this.eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          console.log('📡 SSE: Recebida atualização em tempo real (evento padrão):', data);
+          if (onMessage) onMessage(data);
+        } catch (error) {
+          console.error('📡 SSE: Erro ao processar mensagem:', error);
+        }
+      };
+
+      this.eventSource.onopen = () => {
+        console.log('📡 SSE: Conexão estabelecida');
+        this.reconnectAttempts = 0;
+      };
+
+      this.eventSource.onerror = (error) => {
+        console.error('📡 SSE: Erro na conexão:', error);
+        if (onError) onError(error);
+
+        // Tentar reconectar se não excedeu o limite
+        if (this.reconnectAttempts < this.maxReconnectAttempts) {
+          this.reconnectAttempts++;
+          console.log(`📡 SSE: Tentando reconectar em ${this.reconnectDelay}ms (tentativa ${this.reconnectAttempts})`);
+          setTimeout(() => this.connect(onMessage, onError), this.reconnectDelay);
+        } else {
+          console.error('📡 SSE: Máximo de tentativas de reconexão atingido');
+        }
+      };
+
+    } catch (error) {
+      console.error('📡 SSE: Erro ao criar EventSource:', error);
+      if (onError) onError(error);
+    }
+  }
+
+  disconnect() {
+    if (this.eventSource) {
+      this.eventSource.close();
+      this.eventSource = null;
+      console.log('📡 SSE: Conexão fechada');
+    }
+  }
+
+  isConnected() {
+    return this.eventSource && this.eventSource.readyState === EventSource.OPEN;
+  }
+}
+
+// Instância singleton do gerenciador SSE
+const sseManager = new SseManager();
+
 const pedidoService = {
   // Salvar no cache (no sistema de arquivos via backend)
   salvarCache: async (pedidos) => {
@@ -202,6 +283,19 @@ const pedidoService = {
     // O backend já atualiza o cache automaticamente ao remover pedido
     // Não precisamos atualizar manualmente aqui
     console.log('✅ Pedido removido (backend já atualiza o cache automaticamente)');
+  },
+
+  // Server-Sent Events para atualizações em tempo real
+  conectarSSE: (onPedidoUpdate, onError) => {
+    sseManager.connect(onPedidoUpdate, onError);
+  },
+
+  desconectarSSE: () => {
+    sseManager.disconnect();
+  },
+
+  isSSEConectado: () => {
+    return sseManager.isConnected();
   }
 };
 

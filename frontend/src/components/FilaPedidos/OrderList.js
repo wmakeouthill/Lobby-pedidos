@@ -24,10 +24,12 @@ const OrderList = ({
 
     // Add animating order if applicable
     const pedidosComAnimacao = [...pedidosFiltrados];
-    if (pedidoAnimandoDados && pedidoAnimandoStatus === status) {
+    if (pedidoAnimandoDados && pedidoAnimandoStatus === status && pedidoAnimandoDados.status === status) {
+        console.log(`📋 [OrderList ${status}] Recebeu pedidoAnimandoDados:`, pedidoAnimandoDados, "pedidoAnimando:", pedidoAnimando);
         const jaExiste = pedidosComAnimacao.some(p => p.id === pedidoAnimandoDados.id);
         if (!jaExiste) {
             pedidosComAnimacao.push(pedidoAnimandoDados);
+            console.log(`📋 [OrderList ${status}] Adicionando pedido animando à lista`);
         }
     }
 

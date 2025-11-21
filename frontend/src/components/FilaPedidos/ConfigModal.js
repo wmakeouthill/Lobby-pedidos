@@ -19,22 +19,20 @@ const ConfigModal = ({
         >
             <div className="modal-config" onClick={(e) => e.stopPropagation()}>
                 <h3>Configurar Animação</h3>
+                <p style={{ fontSize: '0.9rem', color: '#666', marginBottom: '20px', textAlign: 'center' }}>
+                    As alterações são aplicadas imediatamente. Clique em "Salvar Configurações" para persistir no sistema.
+                </p>
                 <div className="config-item">
-                    <label
-                        style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "10px",
-                            cursor: "pointer",
-                        }}
-                    >
-                        <input
-                            type="checkbox"
-                            checked={animacaoAtivada}
-                            onChange={(e) => setAnimacaoAtivada(e.target.checked)}
-                            style={{ width: "20px", height: "20px", cursor: "pointer" }}
-                        />
-                        <span>Ativar animação</span>
+                    <label className="toggle-label">
+                        <span className="toggle-text">Ativar animação</span>
+                        <div className="toggle-switch">
+                            <input
+                                type="checkbox"
+                                checked={animacaoAtivada}
+                                onChange={(e) => setAnimacaoAtivada(e.target.checked)}
+                            />
+                            <span className="toggle-slider"></span>
+                        </div>
                     </label>
                 </div>
                 <div className="config-item">
@@ -65,13 +63,13 @@ const ConfigModal = ({
                 </div>
                 <div className="modal-buttons">
                     <button className="btn-salvar" onClick={handleSalvarConfig}>
-                        Salvar
+                        Salvar Configurações
                     </button>
                     <button
                         className="btn-cancelar"
                         onClick={() => setShowConfig(false)}
                     >
-                        Cancelar
+                        Fechar
                     </button>
                 </div>
             </div>
